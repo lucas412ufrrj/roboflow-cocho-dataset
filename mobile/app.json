@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Coleta Cocho - Roboflow",
+    "slug": "roboflow-cocho-capture-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#101820"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Precisamos da câmera para gravar o vídeo do cocho.",
+        "NSMicrophoneUsageDescription": "Precisamos do microfone para gravar o vídeo do cocho.",
+        "NSPhotoLibraryUsageDescription": "Precisamos acessar a galeria para selecionar um vídeo do cocho."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_VIDEO",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Precisamos da câmera para gravar o vídeo do cocho.",
+          "microphonePermission": "Precisamos do microfone para gravar o vídeo do cocho."
+        }
+      ]
+    ]
+  }
+}
