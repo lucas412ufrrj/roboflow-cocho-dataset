@@ -9,7 +9,9 @@
     "splash": {
       "backgroundColor": "#101820"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -33,7 +35,8 @@
           "cameraPermission": "Precisamos da câmera para gravar o vídeo do cocho.",
           "microphonePermission": "Precisamos do microfone para gravar o vídeo do cocho."
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }
