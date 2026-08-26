@@ -1,7 +1,5 @@
 """Rota principal: recebe o vídeo do app móvel e dispara o pipeline de captura."""
 
-from __future__ import annotations
-
 import logging
 import uuid
 
