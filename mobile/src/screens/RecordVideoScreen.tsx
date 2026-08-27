@@ -1,10 +1,9 @@
 import { useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-
+import * as ImagePicker from "expo-image-picker";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { SelectedVideo } from "@/types/capture";
 import { MAX_DURATION_S, MIN_DURATION_S } from "@/utils/video";
@@ -18,7 +17,7 @@ export function RecordVideoScreen({ navigation, route }: Props) {
   const [gravando, setGravando] = useState(false);
 
   async function buildSelectedVideo(uri: string): Promise<SelectedVideo | null> {
-    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    const info = await FileSystem.getInfoAsync(uri);
     if (!info.exists) {
       Alert.alert("Erro", "Não foi possível ler o arquivo de vídeo selecionado.");
       return null;
@@ -69,7 +68,7 @@ export function RecordVideoScreen({ navigation, route }: Props) {
 
   async function selecionarDaGaleria() {
     const resultado = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ["videos"],
       quality: 1,
       videoMaxDuration: MAX_DURATION_S + 5, // margem; validação final é na Prévia
     });
