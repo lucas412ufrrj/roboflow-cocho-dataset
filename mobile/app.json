@@ -4,7 +4,6 @@
     "slug": "roboflow-cocho-capture-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
       "backgroundColor": "#101820"
@@ -25,8 +24,11 @@
         "CAMERA",
         "RECORD_AUDIO",
         "READ_MEDIA_VIDEO",
-        "READ_EXTERNAL_STORAGE"
-      ]
+        "READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.lucascostaufrrj.roboflowcochocaptureapp"
     },
     "plugins": [
       [
@@ -37,6 +39,11 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8740f4d0-7c76-4a92-98b7-c4a5429abe9e"
+      }
+    }
   }
 }
