@@ -33,11 +33,22 @@ class RedactingFilter(logging.Filter):
         self._settings = get_settings()
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # IMPORTANTE: renderiza a mensagem final (msg % args) ANTES de
+        # descartar `record.args` — a versão anterior zerava os args sem
+        # nunca usá-los para substituir na mensagem, então qualquer log com
+        # `%s`/`%.1f` etc. saía com o placeholder literal, sem nenhum valor,
+        # em TODO log do sistema (não só nos que de fato continham a chave).
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            message = str(record.msg)
+
         secret = self._settings.ROBOFLOW_API_KEY
         if secret:
-            if isinstance(record.msg, str):
-                record.msg = redact(record.msg, secret)
-            record.args = ()
+            message = redact(message, secret)
+
+        record.msg = message
+        record.args = ()
         return True
 
 
