@@ -15,6 +15,7 @@ Orquestra o pipeline completo de uma captura de vídeo:
 from __future__ import annotations
 
 import logging
+import resource
 import uuid
 from pathlib import Path
 
@@ -42,6 +43,18 @@ from app.services.video_validation import (
 from app.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
+
+
+def _peak_rss_mb() -> float:
+    """Pico de RSS do processo (em MB) desde que ele iniciou.
+
+    `ru_maxrss` é cumulativo (não é o uso atual, é o maior já visto), o que é
+    exatamente o que queremos para depurar OOM: se essa marca já vem alta
+    logo no início de um request, o problema é memória se acumulando entre
+    requests (o processo do Render não reinicia a cada captura); se ela só
+    dispara durante o request, o problema está dentro deste processamento.
+    """
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 
 class CaptureService:
