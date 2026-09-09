@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { ResizeMode, Video, type AVPlaybackStatus } from "expo-av";
+import { useEvent } from "expo";
+import { useVideoPlayer, VideoView } from "expo-video";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
@@ -14,12 +15,18 @@ export function PreviewScreen({ navigation, route }: Props) {
   const [durationMs, setDurationMs] = useState(video.durationMs);
   const [duracaoCarregada, setDuracaoCarregada] = useState(false);
 
-  function onStatusUpdate(status: AVPlaybackStatus) {
-    if (status.isLoaded && !duracaoCarregada && status.durationMillis) {
-      setDurationMs(status.durationMillis);
+  const player = useVideoPlayer(video.uri, (p) => {
+    p.loop = false;
+  });
+
+  const { status } = useEvent(player, "statusChange", { status: player.status });
+
+  useEffect(() => {
+    if (status === "readyToPlay" && !duracaoCarregada && player.duration) {
+      setDurationMs(player.duration * 1000);
       setDuracaoCarregada(true);
     }
-  }
+  }, [status, duracaoCarregada, player.duration]);
 
   const duracaoValida = duracaoCarregada && isDurationValid(durationMs);
 
@@ -48,13 +55,7 @@ export function PreviewScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.playerWrapper}>
-        <Video
-          source={{ uri: video.uri }}
-          style={styles.player}
-          useNativeControls
-          resizeMode={ResizeMode.CONTAIN}
-          onPlaybackStatusUpdate={onStatusUpdate}
-        />
+        <VideoView style={styles.player} player={player} nativeControls contentFit="contain" />
       </View>
 
       <View style={styles.infoBox}>

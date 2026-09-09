@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
@@ -12,9 +11,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "RecordVideo">;
 
 export function RecordVideoScreen({ navigation, route }: Props) {
   const { form } = route.params;
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
-  const [gravando, setGravando] = useState(false);
+  const [abrindoCamera, setAbrindoCamera] = useState(false);
 
   async function buildSelectedVideo(uri: string): Promise<SelectedVideo | null> {
     const info = await FileSystem.getInfoAsync(uri);
@@ -23,8 +20,8 @@ export function RecordVideoScreen({ navigation, route }: Props) {
       return null;
     }
 
-    // expo-camera/image-picker não retornam duração diretamente aqui;
-    // a duração exata é confirmada na tela de Prévia via expo-av.
+    // expo-image-picker não retorna duração diretamente aqui;
+    // a duração exata é confirmada na tela de Prévia via expo-video.
     return {
       uri,
       durationMs: 0,
@@ -35,35 +32,38 @@ export function RecordVideoScreen({ navigation, route }: Props) {
   }
 
   async function gravarVideo() {
-    if (!permission?.granted) {
-      const resposta = await requestPermission();
-      if (!resposta.granted) {
-        Alert.alert("Permissão necessária", "Autorize o uso da câmera para gravar o vídeo.");
-        return;
-      }
+    const permissao = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permissao.granted) {
+      Alert.alert("Permissão necessária", "Autorize o uso da câmera para gravar o vídeo.");
+      return;
     }
-    if (!cameraRef.current) return;
 
     try {
-      setGravando(true);
-      const video = await cameraRef.current.recordAsync({
-        maxDuration: MAX_DURATION_S,
+      setAbrindoCamera(true);
+      // Usamos a câmera nativa do sistema (UIImagePickerController no iOS,
+      // Camera intent no Android) em vez do CameraView customizado: no iOS o
+      // `videoBitrate`/`videoQuality` do expo-camera não estava sendo
+      // respeitado (vídeos saíam com 60MB+ em resolução nativa da câmera,
+      // estourando o timeout de upload do backend). `videoExportPreset`
+      // aqui é explícito (720p H.264, resolução fixa) e usa a API nativa e
+      // estável de gravação de vídeo do iOS.
+      const resultado = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["videos"],
+        videoMaxDuration: MAX_DURATION_S,
+        videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
       });
-      setGravando(false);
-      if (!video?.uri) return;
+      setAbrindoCamera(false);
 
-      const selected = await buildSelectedVideo(video.uri);
+      if (resultado.canceled || !resultado.assets?.[0]) return;
+
+      const selected = await buildSelectedVideo(resultado.assets[0].uri);
       if (selected) {
         navigation.navigate("Preview", { form, video: selected });
       }
     } catch (error) {
-      setGravando(false);
+      setAbrindoCamera(false);
       Alert.alert("Erro ao gravar", "Não foi possível concluir a gravação. Tente novamente.");
     }
-  }
-
-  function pararGravacao() {
-    cameraRef.current?.stopRecording();
   }
 
   async function selecionarDaGaleria() {
@@ -89,24 +89,19 @@ export function RecordVideoScreen({ navigation, route }: Props) {
         selecione um vídeo já gravado.
       </Text>
 
-      {permission?.granted ? (
-        <View style={styles.cameraWrapper}>
-          <CameraView ref={cameraRef} style={styles.camera} mode="video" facing="back" />
-        </View>
-      ) : (
-        <View style={[styles.cameraWrapper, styles.cameraPlaceholder]}>
-          <Text style={styles.placeholderTexto}>
-            Toque em "Gravar vídeo" para autorizar o uso da câmera.
-          </Text>
-        </View>
-      )}
+      <View style={[styles.cameraWrapper, styles.cameraPlaceholder]}>
+        <Text style={styles.placeholderTexto}>
+          Toque em "Gravar vídeo" para abrir a câmera do aparelho.
+        </Text>
+      </View>
 
       <View style={styles.botoesLinha}>
         <Pressable
-          style={[styles.botao, gravando && styles.botaoAtivo]}
-          onPress={gravando ? pararGravacao : gravarVideo}
+          style={[styles.botao, abrindoCamera && styles.botaoDesabilitado]}
+          onPress={gravarVideo}
+          disabled={abrindoCamera}
         >
-          <Text style={styles.botaoTexto}>{gravando ? "Parar gravação" : "Gravar vídeo"}</Text>
+          <Text style={styles.botaoTexto}>{abrindoCamera ? "Abrindo câmera..." : "Gravar vídeo"}</Text>
         </Pressable>
       </View>
 
@@ -126,7 +121,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#000",
   },
-  camera: { flex: 1 },
   cameraPlaceholder: { alignItems: "center", justifyContent: "center", padding: 20 },
   placeholderTexto: { color: "#8A8F98", textAlign: "center" },
   botoesLinha: { flexDirection: "row", gap: 12 },
@@ -137,7 +131,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: "center",
   },
-  botaoAtivo: { backgroundColor: "#E14444" },
+  botaoDesabilitado: { backgroundColor: "#354456" },
   botaoTexto: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   botaoSecundario: {
     borderRadius: 12,

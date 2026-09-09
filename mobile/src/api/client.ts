@@ -54,6 +54,10 @@ export function uploadCapture({
 
     const pesoKg = parsePesoKg(form.pesoKg);
 
+    console.log(
+      `[uploadCapture] iniciando envio: captureId=${captureId} tamanho=${video.sizeBytes} bytes duracao=${video.durationMs}ms uri=${video.uri}`
+    );
+
     const formData = new FormData();
     formData.append("video", {
       uri: video.uri,
@@ -78,6 +82,9 @@ export function uploadCapture({
     };
 
     xhr.onload = () => {
+      console.log(
+        `[uploadCapture] onload: status=${xhr.status} tamanhoResposta=${xhr.responseText?.length ?? 0} corpo="${(xhr.responseText ?? "").slice(0, 300)}"`
+      );
       try {
         const body = JSON.parse(xhr.responseText);
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -87,12 +94,24 @@ export function uploadCapture({
           reject(new ApiError(errorBody.detail ?? "Falha ao enviar captura.", xhr.status));
         }
       } catch {
-        reject(new ApiError("Resposta inválida do servidor.", xhr.status));
+        const preview = (xhr.responseText ?? "").slice(0, 200) || "(corpo vazio)";
+        reject(
+          new ApiError(
+            `Resposta inválida do servidor. status=${xhr.status} corpo="${preview}"`,
+            xhr.status
+          )
+        );
       }
     };
 
-    xhr.onerror = () => reject(new ApiError("Falha de rede ao enviar o vídeo."));
-    xhr.ontimeout = () => reject(new ApiError("Tempo limite excedido ao enviar o vídeo."));
+    xhr.onerror = () => {
+      console.log(`[uploadCapture] onerror: status=${xhr.status}`);
+      reject(new ApiError(`Falha de rede ao enviar o vídeo. status=${xhr.status}`));
+    };
+    xhr.ontimeout = () => {
+      console.log("[uploadCapture] ontimeout");
+      reject(new ApiError("Tempo limite excedido ao enviar o vídeo."));
+    };
     xhr.timeout = 5 * 60 * 1000; // 5 minutos: vídeos + processamento podem demorar
 
     xhr.send(formData);
