@@ -71,6 +71,10 @@ export function RecordVideoScreen({ navigation, route }: Props) {
       mediaTypes: ["videos"],
       quality: 1,
       videoMaxDuration: MAX_DURATION_S + 5, // margem; validação final é na Prévia
+      // Mesmo tratamento da gravação: recomprime o vídeo escolhido para
+      // 720p H.264 antes de devolver ao app, mesmo que o arquivo original
+      // salvo no aparelho esteja em resolução nativa da câmera (4K, etc.).
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
     });
 
     if (resultado.canceled || !resultado.assets?.[0]) return;
