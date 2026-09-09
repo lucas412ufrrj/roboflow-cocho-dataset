@@ -76,10 +76,22 @@ class Settings(BaseSettings):
     ROBOFLOW_UPLOAD_MAX_RETRIES: int = 4
 
     # --- Validador de cocho ---
+    # ROBOFLOW_UPLOAD_BASE_URL (acima) é a API de gerenciamento de dataset
+    # (usada por roboflow_client.py para SUBIR frames aprovados).
+    # ROBOFLOW_INFERENCE_BASE_URL é a API de inferência hospedada (usada
+    # aqui para CONSULTAR o modelo treinado) — são hosts diferentes no
+    # Roboflow, não reaproveite um pelo outro.
+    ROBOFLOW_INFERENCE_BASE_URL: str = "https://detect.roboflow.com"
     TROUGH_VALIDATOR: Literal["mock", "roboflow"] = "mock"
     TROUGH_VALIDATOR_MOCK_ALWAYS_VALID: bool = True
     TROUGH_VALIDATOR_MOCK_CONFIDENCE: float = 0.95
-    ROBOFLOW_TROUGH_MODEL_ID: str = ""  # ex: "cocho-integrity/1"
+    # Formato "projeto/versao", ex: "reconhecimento-de-cocho/13".
+    ROBOFLOW_TROUGH_MODEL_ID: str = ""
+    # Chave do workspace onde o modelo de detecção vive (pode ser diferente
+    # do workspace de upload do dataset de peso, ex. lucass-workspace-mmecb
+    # vs. lucas-da-guia-costa). Se vazia, cai para ROBOFLOW_API_KEY — só
+    # deixe vazia se os dois projetos estiverem de fato na mesma conta.
+    ROBOFLOW_TROUGH_API_KEY: str = ""
     ROBOFLOW_TROUGH_CONFIDENCE_THRESHOLD: float = 0.5
 
     @field_validator("ROBOFLOW_API_KEY")

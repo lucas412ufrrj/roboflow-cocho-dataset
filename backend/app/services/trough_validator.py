@@ -78,12 +78,26 @@ class MockTroughValidator(TroughValidator):
 
 class RoboflowTroughValidator(TroughValidator):
     """
-    Implementação real, preparada para chamar um Model/Workflow do Roboflow
-    especializado em detectar se o cocho está inteiro/visível no frame.
+    Implementação real: chama o modelo de segmentação de instâncias
+    `reconhecimento-de-cocho` (workspace `lucass-workspace-mmecb`), treinado
+    com duas classes: `trough` (o cocho inteiro) e `trough_end` (cada
+    extremidade — uma única classe genérica, sem distinção de lado, ver
+    decisão registrada no projeto Roboflow em 2026-09-09).
 
-    A chave `ROBOFLOW_API_KEY` é lida da configuração do backend e NUNCA é
-    logada nem retornada ao cliente. Use `ROBOFLOW_TROUGH_MODEL_ID` (ex.:
-    "workspace/cocho-integrity/1") para apontar o modelo/workflow treinado.
+    Regra de "cocho completo" usada aqui: existe pelo menos uma predição
+    `trough` no frame E pelo menos DUAS predições `trough_end` (as duas
+    extremidades visíveis no mesmo frame). Isso é o que caracteriza uma foto
+    de "cocho inteiro" pronta para virar dado de treino do modelo de peso —
+    uma foto com só uma extremidade é fragmentada e não deve ser aprovada
+    aqui (hoje esse caso simplesmente é rejeitado; reconstrução por
+    panorâmica a partir de vídeo é uma etapa futura, não implementada).
+
+    Usa `ROBOFLOW_TROUGH_API_KEY` (chave do workspace onde o modelo de
+    detecção vive) quando configurada; cai para `ROBOFLOW_API_KEY` caso
+    contrário — só use o fallback se os dois projetos realmente estiverem no
+    mesmo workspace/conta Roboflow. Nenhuma das duas chaves é logada nem
+    retornada ao cliente. Use `ROBOFLOW_TROUGH_MODEL_ID` no formato
+    "projeto/versao" (ex.: "reconhecimento-de-cocho/13").
     """
 
     def __init__(self, settings: Settings | None = None, client: httpx.AsyncClient | None = None) -> None:
@@ -100,54 +114,81 @@ class RoboflowTroughValidator(TroughValidator):
             raise RuntimeError(
                 "ROBOFLOW_TROUGH_MODEL_ID não configurado para RoboflowTroughValidator."
             )
-        if not self.settings.ROBOFLOW_API_KEY:
-            raise RuntimeError("ROBOFLOW_API_KEY não configurada no backend.")
+        api_key = self.settings.ROBOFLOW_TROUGH_API_KEY or self.settings.ROBOFLOW_API_KEY
+        if not api_key:
+            raise RuntimeError(
+                "Nenhuma chave configurada (ROBOFLOW_TROUGH_API_KEY nem ROBOFLOW_API_KEY)."
+            )
+
+        import base64
 
         import cv2
 
         ok, buffer = cv2.imencode(".jpg", frame_bgr)
         if not ok:
             raise ValueError("Falha ao codificar frame para envio ao Roboflow.")
+        # A API de inferência hospedada do Roboflow espera o corpo como uma
+        # string base64 do JPEG (não os bytes crus da imagem) com
+        # Content-Type application/x-www-form-urlencoded.
+        encoded_image = base64.b64encode(buffer.tobytes())
 
         url = (
-            f"{self.settings.ROBOFLOW_UPLOAD_BASE_URL}/"
+            f"{self.settings.ROBOFLOW_INFERENCE_BASE_URL}/"
             f"{self.settings.ROBOFLOW_TROUGH_MODEL_ID}"
         )
-        params = {"api_key": self.settings.ROBOFLOW_API_KEY, "confidence": 40}
+        params = {"api_key": api_key, "confidence": 40}
 
         client = await self._get_client()
         try:
             response = await client.post(
                 url,
                 params=params,
-                content=buffer.tobytes(),
+                content=encoded_image,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            safe_msg = redact(str(exc), self.settings.ROBOFLOW_API_KEY)
+            safe_msg = redact(str(exc), api_key)
             logger.error("Erro ao consultar RoboflowTroughValidator: %s", safe_msg)
             raise
 
         data = response.json()
         predictions = data.get("predictions", [])
-        # Regra de decisão de exemplo: considera "cocho completo" se existir ao
-        # menos uma predição da classe "cocho_completo" (ou similar) acima do
-        # limiar configurado. Ajuste conforme o modelo real treinado.
+
         threshold = self.settings.ROBOFLOW_TROUGH_CONFIDENCE_THRESHOLD
-        best = max(
-            (p for p in predictions if p.get("class") in ("cocho_completo", "trough_complete")),
+
+        trough_preds = [p for p in predictions if p.get("class") == "trough"]
+        end_preds = sorted(
+            (p for p in predictions if p.get("class") == "trough_end"),
             key=lambda p: p.get("confidence", 0.0),
-            default=None,
+            reverse=True,
         )
-        if best is not None and best.get("confidence", 0.0) >= threshold:
-            return TroughValidationResult(
-                cocho_completo=True, confidence=float(best["confidence"])
+        strong_ends = [p for p in end_preds if p.get("confidence", 0.0) >= threshold]
+
+        if trough_preds and len(strong_ends) >= 2:
+            # Confiança reportada é a do elo mais fraco (a segunda
+            # extremidade mais confiante) — é o que realmente limita se a
+            # foto está completa, não a detecção mais forte.
+            limiting_confidence = float(strong_ends[1]["confidence"])
+            return TroughValidationResult(cocho_completo=True, confidence=limiting_confidence)
+
+        if not trough_preds:
+            motivo = "cocho_nao_detectado (roboflow)"
+        elif len(end_preds) == 0:
+            motivo = "nenhuma_extremidade_detectada (roboflow)"
+        elif len(strong_ends) < 2:
+            motivo = (
+                f"apenas_{len(strong_ends)}_extremidade(s)_acima_do_limiar "
+                f"(roboflow, {len(end_preds)} detectada(s) no total)"
             )
+        else:
+            motivo = "cocho_incompleto (roboflow)"
+
+        best_end_confidence = float(end_preds[0]["confidence"]) if end_preds else 0.0
         return TroughValidationResult(
             cocho_completo=False,
-            confidence=float(best["confidence"]) if best else 0.0,
-            motivo="cocho_incompleto (roboflow)",
+            confidence=best_end_confidence,
+            motivo=motivo,
         )
 
     async def aclose(self) -> None:
