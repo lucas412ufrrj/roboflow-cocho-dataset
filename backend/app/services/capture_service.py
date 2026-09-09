@@ -57,6 +57,44 @@ def _peak_rss_mb() -> float:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 
+def _current_rss_mb() -> float:
+    """RSS atual (não o pico) do processo, em MB. Só funciona em Linux (lê
+    /proc/self/status, disponível no container do Render); fora do Linux
+    devolve 0.0 sem quebrar nada."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def _release_memory_to_os() -> None:
+    """Força o alocador do glibc a devolver memória livre ao SO.
+
+    O motivo mais comum de um processo Python+NumPy/OpenCV de vida longa ter
+    o RSS crescendo request após request, mesmo sem nenhum vazamento real de
+    referência, é o `malloc` do glibc reter os blocos liberados em vez de
+    devolvê-los ao SO — o Python já desalocou os arrays de frame e buffers de
+    JPEG, mas o processo continua "segurando" esse espaço internamente.
+    `malloc_trim(0)` pede pro glibc devolver o que puder. Isso é o que evita
+    que o processo vá se aproximando do teto de 512MB do Render ao longo de
+    várias capturas seguidas, mesmo com cada captura individual já com
+    memória de pico controlada (streaming de frames).
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # não-Linux/não-glibc: sem equivalente direto, sem problema.
+
+
 class CaptureService:
     def __init__(
         self,
@@ -95,6 +133,11 @@ class CaptureService:
         raw_key = f"{capture_id}/raw_{original_filename}"
         normalized_key = f"{capture_id}/normalized.mp4"
 
+        logger.info(
+            "capture %s: início, vídeo=%.1fMB mime=%s, pico memória do processo até agora: %.1fMB",
+            capture_id, len(video_bytes) / 1024 / 1024, mime_type, _peak_rss_mb(),
+        )
+
         try:
             # --- 1. Validações estruturais ---
             validate_mime_type(mime_type, constraints)
@@ -105,14 +148,28 @@ class CaptureService:
 
             probe = await probe_video(raw_local_path)
             validate_duration(probe, constraints)
+            logger.info(
+                "capture %s: probe codec=%s %dx%d fps=%.1f duracao=%.1fs, pico memória: %.1fMB",
+                capture_id, probe.codec_name, probe.width, probe.height, probe.fps,
+                probe.duration_s, _peak_rss_mb(),
+            )
 
             # --- 2. Normalização (se necessário) ---
             if needs_normalization(probe, mime_type):
+                logger.info(
+                    "capture %s: normalização NECESSÁRIA (mime=%s codec=%s) — rodando ffmpeg",
+                    capture_id, mime_type, probe.codec_name,
+                )
                 normalized_local_path = await self.storage.local_path(normalized_key)
                 await normalize_to_h264_mp4(raw_local_path, normalized_local_path)
                 processing_path = normalized_local_path
+                logger.info(
+                    "capture %s: normalização concluída, pico memória: %.1fMB",
+                    capture_id, _peak_rss_mb(),
+                )
             else:
                 processing_path = raw_local_path
+                logger.info("capture %s: normalização pulada (já é mp4/h264)", capture_id)
 
             # --- 3. Extração de frames (streaming) ---
             # `iter_frames` decodifica e entrega um frame por vez (a
@@ -129,6 +186,11 @@ class CaptureService:
 
             async for frame in iter_frames(processing_path, self.settings.FRAMES_PER_SECOND):
                 total_candidatos += 1
+                if total_candidatos == 1 or total_candidatos % 5 == 0:
+                    logger.info(
+                        "capture %s: frame candidato #%d, pico memória: %.1fMB",
+                        capture_id, total_candidatos, _peak_rss_mb(),
+                    )
                 focus_score = compute_focus_score(frame.frame_bgr)
 
                 if not is_frame_sharp(focus_score, self.settings.FOCUS_SCORE_THRESHOLD):
@@ -219,11 +281,22 @@ class CaptureService:
             )
 
             await self.idempotency_store.set(capture_id, response.model_dump(mode="json"))
+            logger.info(
+                "capture %s: concluído (%d candidatos, %d aprovados), pico memória: %.1fMB",
+                capture_id, total_candidatos, aprovados, _peak_rss_mb(),
+            )
             return response
 
         finally:
             # --- 8. Limpeza de arquivos temporários (sucesso OU falha) ---
             await self._cleanup(raw_key, normalized_key)
+            rss_antes = _current_rss_mb()
+            _release_memory_to_os()
+            rss_depois = _current_rss_mb()
+            logger.info(
+                "capture %s: memória devolvida ao SO: %.1fMB -> %.1fMB (liberados %.1fMB)",
+                capture_id, rss_antes, rss_depois, rss_antes - rss_depois,
+            )
 
     async def _cleanup(self, *keys: str) -> None:
         for key in keys:

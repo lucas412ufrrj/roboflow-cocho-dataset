@@ -1,6 +1,7 @@
 """Rota principal: recebe o vídeo do app móvel e dispara o pipeline de captura."""
 
 import logging
+import resource
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -13,6 +14,10 @@ from app.services.capture_service import CaptureService
 from app.services.video_validation import VideoValidationError
 
 logger = logging.getLogger(__name__)
+
+
+def _peak_rss_mb() -> float:
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 router = APIRouter(prefix="/api", tags=["captures"])
 
@@ -37,6 +42,12 @@ async def create_capture(
     ),
     capture_service: CaptureService = Depends(get_capture_service),
 ) -> CaptureResponse:
+    # Log o mais cedo possível na requisição: se o processo estiver perto do
+    # teto de memória do Render ANTES mesmo de ler o vídeo, isso é sinal de
+    # memória se acumulando entre requisições anteriores (o processo não
+    # reinicia sozinho), não de custo deste request específico.
+    logger.info("create_capture: entrada da rota, pico memória: %.1fMB", _peak_rss_mb())
+
     try:
         form = CaptureFormInput(
             peso_kg=peso_kg,
@@ -49,6 +60,10 @@ async def create_capture(
 
     resolved_capture_id = capture_id or str(uuid.uuid4())
     video_bytes = await video.read()
+    logger.info(
+        "create_capture: vídeo lido (%.1fMB), pico memória: %.1fMB",
+        len(video_bytes) / 1024 / 1024, _peak_rss_mb(),
+    )
 
     try:
         return await capture_service.process_capture(
