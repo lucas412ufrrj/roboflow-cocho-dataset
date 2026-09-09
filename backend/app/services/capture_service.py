@@ -28,7 +28,7 @@ from app.models.schemas import (
 )
 from app.services.ffmpeg_utils import normalize_to_h264_mp4, needs_normalization, probe_video
 from app.services.focus import compute_focus_score, is_frame_sharp
-from app.services.frame_extractor import encode_jpeg, extract_frames
+from app.services.frame_extractor import encode_jpeg, iter_frames
 from app.services.idempotency import IdempotencyStore
 from app.services.roboflow_client import RoboflowClient, RoboflowUploadError
 from app.services.split import choose_split
@@ -101,15 +101,21 @@ class CaptureService:
             else:
                 processing_path = raw_local_path
 
-            # --- 3. Extração de frames ---
-            frames = await extract_frames(processing_path, self.settings.FRAMES_PER_SECOND)
-
+            # --- 3. Extração de frames (streaming) ---
+            # `iter_frames` decodifica e entrega um frame por vez (a
+            # decodificação roda em thread separada, com uma fila de tamanho
+            # 2 fazendo backpressure), em vez de decodificar o vídeo inteiro
+            # e manter todos os frames aceitos em memória simultaneamente.
+            # O processamento continua sequencial, frame a frame, como
+            # antes — só muda como os frames chegam.
             split = choose_split(video_id)
 
             frame_results: list[FrameResult] = []
             aprovados = desfocados = cocho_incompleto = falhas_upload = 0
+            total_candidatos = 0
 
-            for frame in frames:
+            async for frame in iter_frames(processing_path, self.settings.FRAMES_PER_SECOND):
+                total_candidatos += 1
                 focus_score = compute_focus_score(frame.frame_bgr)
 
                 if not is_frame_sharp(focus_score, self.settings.FOCUS_SCORE_THRESHOLD):
@@ -191,7 +197,7 @@ class CaptureService:
                 video_id=video_id,
                 split=split,
                 peso_kg=form.peso_kg,
-                total_candidatos=len(frames),
+                total_candidatos=total_candidatos,
                 total_aprovados=aprovados,
                 total_rejeitados_desfoque=desfocados,
                 total_rejeitados_cocho_incompleto=cocho_incompleto,
