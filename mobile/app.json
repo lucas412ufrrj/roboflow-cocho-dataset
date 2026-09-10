@@ -39,14 +39,23 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#101820"
+          "backgroundColor": "#101820",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
         }
-      ]
+      ],
+      "expo-video"
     ],
     "extra": {
       "eas": {
         "projectId": "8740f4d0-7c76-4a92-98b7-c4a5429abe9e"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8740f4d0-7c76-4a92-98b7-c4a5429abe9e"
     }
   }
 }
