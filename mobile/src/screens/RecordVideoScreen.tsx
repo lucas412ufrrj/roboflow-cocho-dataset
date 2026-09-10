@@ -93,13 +93,7 @@ export function RecordVideoScreen({ navigation, route }: Props) {
         selecione um vídeo já gravado.
       </Text>
 
-      <View style={[styles.cameraWrapper, styles.cameraPlaceholder]}>
-        <Text style={styles.placeholderTexto}>
-          Toque em "Gravar vídeo" para abrir a câmera do aparelho.
-        </Text>
-      </View>
-
-      <View style={styles.botoesLinha}>
+      <View style={styles.botoesCentro}>
         <Pressable
           style={[styles.botao, abrindoCamera && styles.botaoDesabilitado]}
           onPress={gravarVideo}
@@ -107,11 +101,11 @@ export function RecordVideoScreen({ navigation, route }: Props) {
         >
           <Text style={styles.botaoTexto}>{abrindoCamera ? "Abrindo câmera..." : "Gravar vídeo"}</Text>
         </Pressable>
-      </View>
 
-      <Pressable style={styles.botaoSecundario} onPress={selecionarDaGaleria}>
-        <Text style={styles.botaoSecundarioTexto}>Selecionar vídeo da galeria</Text>
-      </Pressable>
+        <Pressable style={styles.botaoSecundario} onPress={selecionarDaGaleria}>
+          <Text style={styles.botaoSecundarioTexto}>Selecionar vídeo da galeria</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -119,17 +113,12 @@ export function RecordVideoScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 16 },
   instrucao: { color: "#D0D3D8", fontSize: 14 },
-  cameraWrapper: {
-    flex: 1,
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor: "#000",
-  },
-  cameraPlaceholder: { alignItems: "center", justifyContent: "center", padding: 20 },
-  placeholderTexto: { color: "#8A8F98", textAlign: "center" },
-  botoesLinha: { flexDirection: "row", gap: 12 },
+  // Sem preview de câmera aqui: a gravação abre a câmera nativa do
+  // aparelho (fora do app), então não há nada pra mostrar nesta tela
+  // enquanto se espera o toque no botão. Os botões ficam centralizados
+  // no espaço que sobrou.
+  botoesCentro: { flex: 1, justifyContent: "center", gap: 12 },
   botao: {
-    flex: 1,
     backgroundColor: "#3D8BFD",
     borderRadius: 12,
     paddingVertical: 16,
