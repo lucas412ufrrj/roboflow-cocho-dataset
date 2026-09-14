@@ -40,6 +40,14 @@ async def create_capture(
         default=None,
         description="UUID gerado pelo app. Se omitido, o backend gera um novo.",
     ),
+    recorded_at: int | None = Form(
+        default=None,
+        description="Horário real de gravação do vídeo (epoch ms), quando o app conseguiu descobrir.",
+    ),
+    operador: str | None = Form(
+        default=None,
+        description="Nome de quem gravou, quando configurado no aparelho.",
+    ),
     capture_service: CaptureService = Depends(get_capture_service),
 ) -> CaptureResponse:
     # Log o mais cedo possível na requisição: se o processo estiver perto do
@@ -54,6 +62,8 @@ async def create_capture(
             tipo_alimento=tipo_alimento,
             cocho_id=cocho_id,
             observacoes=observacoes,
+            recorded_at=recorded_at,
+            operador=operador,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

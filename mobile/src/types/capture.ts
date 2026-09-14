@@ -16,6 +16,13 @@ export interface CaptureFormData {
   tipoAlimento?: string;
   cochoId?: string;
   observacoes?: string;
+  /**
+   * Nome de quem está gravando, configurado uma vez no Lobby (ver
+   * `services/operador.ts`) e anexado automaticamente a cada captura na
+   * Prévia — não é um campo editável por captura. `undefined` quando nunca
+   * foi configurado no aparelho.
+   */
+  operador?: string;
 }
 
 export interface SelectedVideo {
@@ -24,6 +31,14 @@ export interface SelectedVideo {
   sizeBytes: number;
   fileName: string;
   mimeType: string;
+  /**
+   * Horário real de gravação (epoch ms), quando dá pra descobrir — via
+   * `expo-media-library` (vídeo com `assetId`) ou, na falta disso, a data de
+   * modificação do próprio arquivo (ver `RecordVideoScreen.obterHorarioReal`).
+   * `undefined` quando nenhuma das duas fontes funcionou; nesse caso o
+   * backend usa o horário de recebimento do upload, como já fazia antes.
+   */
+  recordedAt?: number;
 }
 
 export interface FrameResult {

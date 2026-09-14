@@ -12,6 +12,7 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
+import { parsePesoInput } from "@/utils/peso";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CaptureForm">;
 
@@ -22,16 +23,8 @@ export function CaptureFormScreen({ navigation }: Props) {
   const [observacoes, setObservacoes] = useState("");
   const [erro, setErro] = useState<string | null>(null);
 
-  function validarPeso(valor: string): number | null {
-    const normalizado = valor.trim().replace(",", ".");
-    if (!normalizado) return null;
-    const numero = Number(normalizado);
-    if (Number.isNaN(numero) || numero <= 0) return null;
-    return numero;
-  }
-
   function continuar() {
-    const numero = validarPeso(pesoKg);
+    const numero = parsePesoInput(pesoKg);
     if (numero === null) {
       setErro("Informe o peso real em kg (ex.: 12.5).");
       return;

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
 
     # --- Rate limiting ---
     RATE_LIMIT_CAPTURES: str = "10/minute"
+    # Bem mais generoso que RATE_LIMIT_CAPTURES: um único vídeo grande vira
+    # dezenas de requisições pequenas (ver `app/services/chunked_upload_service.py`).
+    RATE_LIMIT_CHUNKS: str = "600/minute"
 
     # --- Upload / vídeo ---
     MAX_VIDEO_SIZE_MB: float = 150.0

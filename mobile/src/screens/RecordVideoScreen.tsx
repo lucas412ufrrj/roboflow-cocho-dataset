@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library/legacy";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
@@ -13,7 +14,48 @@ export function RecordVideoScreen({ navigation, route }: Props) {
   const { form } = route.params;
   const [abrindoCamera, setAbrindoCamera] = useState(false);
 
-  async function buildSelectedVideo(uri: string): Promise<SelectedVideo | null> {
+  /**
+   * Tenta descobrir o horário real de gravação do vídeo, sem depender da
+   * pessoa digitar nada. Duas fontes, nessa ordem:
+   *
+   * 1. `expo-media-library`, via `assetId` do `expo-image-picker` — o dado
+   *    mais confiável, mas só existe quando o vídeo está na galeria (comum
+   *    ao selecionar da galeria; nem sempre disponível logo após gravar,
+   *    dependendo do aparelho).
+   * 2. Data de modificação do próprio arquivo — fallback pra quando não há
+   *    `assetId`. Não é o instante exato do início da gravação, mas fica
+   *    bem próximo (é quando o arquivo terminou de ser escrito).
+   *
+   * Se as duas falharem, devolve `undefined` e o backend segue usando o
+   * horário de recebimento do upload, como já acontecia antes desta função.
+   */
+  async function obterHorarioReal(asset: ImagePicker.ImagePickerAsset): Promise<number | undefined> {
+    if (asset.assetId) {
+      try {
+        const permissao = await MediaLibrary.requestPermissionsAsync();
+        if (permissao.granted) {
+          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
+          if (info.creationTime) return info.creationTime;
+        }
+      } catch {
+        // segue pro fallback abaixo
+      }
+    }
+
+    try {
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      if (info.exists && info.modificationTime) return info.modificationTime * 1000;
+    } catch {
+      // sem nenhuma das duas fontes: undefined mesmo
+    }
+
+    return undefined;
+  }
+
+  async function buildSelectedVideo(
+    uri: string,
+    recordedAt: number | undefined
+  ): Promise<SelectedVideo | null> {
     const info = await FileSystem.getInfoAsync(uri);
     if (!info.exists) {
       Alert.alert("Erro", "Não foi possível ler o arquivo de vídeo selecionado.");
@@ -28,6 +70,7 @@ export function RecordVideoScreen({ navigation, route }: Props) {
       sizeBytes: info.size ?? 0,
       fileName: uri.split("/").pop() ?? "video.mp4",
       mimeType: "video/mp4",
+      recordedAt,
     };
   }
 
@@ -56,7 +99,9 @@ export function RecordVideoScreen({ navigation, route }: Props) {
 
       if (resultado.canceled || !resultado.assets?.[0]) return;
 
-      const selected = await buildSelectedVideo(resultado.assets[0].uri);
+      const asset = resultado.assets[0];
+      const recordedAt = await obterHorarioReal(asset);
+      const selected = await buildSelectedVideo(asset.uri, recordedAt);
       if (selected) {
         navigation.navigate("Preview", { form, video: selected });
       }
@@ -80,7 +125,8 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     if (resultado.canceled || !resultado.assets?.[0]) return;
 
     const asset = resultado.assets[0];
-    const selected = await buildSelectedVideo(asset.uri);
+    const recordedAt = await obterHorarioReal(asset);
+    const selected = await buildSelectedVideo(asset.uri, recordedAt);
     if (selected) {
       navigation.navigate("Preview", { form, video: selected });
     }

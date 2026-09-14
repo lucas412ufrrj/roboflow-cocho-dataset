@@ -2,16 +2,25 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import type { CaptureFormData, SelectedVideo } from "@/types/capture";
+import { LobbyScreen } from "@/screens/LobbyScreen";
 import { CaptureFormScreen } from "@/screens/CaptureFormScreen";
 import { RecordVideoScreen } from "@/screens/RecordVideoScreen";
 import { PreviewScreen } from "@/screens/PreviewScreen";
 import { UploadStatusScreen } from "@/screens/UploadStatusScreen";
+import { HistoricoScreen } from "@/screens/HistoricoScreen";
+import { SobreScreen } from "@/screens/SobreScreen";
+import { HistoricoHeaderLink } from "@/components/HistoricoHeaderLink";
 
 export type RootStackParamList = {
+  Lobby: undefined;
   CaptureForm: undefined;
   RecordVideo: { form: CaptureFormData };
   Preview: { form: CaptureFormData; video: SelectedVideo };
-  UploadStatus: { form: CaptureFormData; video: SelectedVideo; captureId: string };
+  // Só o captureId: os dados da captura (form + vídeo) já estão na fila
+  // local (offlineQueue) a partir do momento em que a Prévia é confirmada.
+  UploadStatus: { captureId: string };
+  Historico: undefined;
+  Sobre: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -20,7 +29,7 @@ export function RootNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName="CaptureForm"
+        initialRouteName="Lobby"
         screenOptions={{
           headerStyle: { backgroundColor: "#101820" },
           headerTintColor: "#F5F5F5",
@@ -28,9 +37,27 @@ export function RootNavigator() {
         }}
       >
         <Stack.Screen
+          name="Lobby"
+          component={LobbyScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="CaptureForm"
           component={CaptureFormScreen}
-          options={{ title: "Nova captura" }}
+          options={({ navigation }) => ({
+            title: "Nova captura",
+            headerRight: () => <HistoricoHeaderLink navigation={navigation} />,
+          })}
+        />
+        <Stack.Screen
+          name="Historico"
+          component={HistoricoScreen}
+          options={{ title: "Histórico de envios" }}
+        />
+        <Stack.Screen
+          name="Sobre"
+          component={SobreScreen}
+          options={{ title: "Sobre" }}
         />
         <Stack.Screen
           name="RecordVideo"

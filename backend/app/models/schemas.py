@@ -30,6 +30,31 @@ class CaptureFormInput(BaseModel):
     tipo_alimento: str | None = Field(default=None, max_length=120)
     cocho_id: str | None = Field(default=None, max_length=120)
     observacoes: str | None = Field(default=None, max_length=1000)
+    operador: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Nome de quem gravou, quando configurado no aparelho.",
+    )
+    recorded_at: int | None = Field(
+        default=None,
+        description=(
+            "Horário real de gravação do vídeo, epoch ms, quando o app conseguiu "
+            "descobrir (expo-media-library ou data do arquivo). Opcional: ausente em "
+            "capturas de versões antigas do app ou quando nenhuma das duas fontes "
+            "funcionou — nesses casos o horário de recebimento do upload é o que fica."
+        ),
+    )
+
+    @field_validator("recorded_at")
+    @classmethod
+    def validate_recorded_at(cls, v: int | None) -> int | None:
+        if v is None:
+            return None
+        if v <= 0:
+            # Claramente inválido (ex.: relógio do aparelho zerado) — melhor
+            # descartar do que guardar um valor sem sentido no Roboflow.
+            return None
+        return v
 
     @field_validator("peso_kg")
     @classmethod
@@ -49,7 +74,7 @@ class CaptureFormInput(BaseModel):
             )
         return round(float(v), 3)
 
-    @field_validator("tipo_alimento", "cocho_id", "observacoes", mode="before")
+    @field_validator("tipo_alimento", "cocho_id", "observacoes", "operador", mode="before")
     @classmethod
     def blank_to_none(cls, v: str | None) -> str | None:
         if v is None:
@@ -73,6 +98,8 @@ class FrameMetadata(BaseModel):
     tipo_alimento: str | None = None
     cocho_id: str | None = None
     observacoes: str | None = None
+    recorded_at: int | None = None
+    operador: str | None = None
 
     def to_json_dict(self) -> dict:
         return self.model_dump(mode="json", exclude_none=False)
@@ -104,3 +131,22 @@ class CaptureResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class ChunkedUploadInitResponse(BaseModel):
+    """Resposta de POST /api/captures/init — ver `services/chunked_upload_service.py`."""
+
+    status: Literal["already_processed", "in_progress"]
+    # Índices de blocos que o backend já tem, pra o app pular no reenvio.
+    # Vazio numa sessão nova ou quando `status == "already_processed"`.
+    received_chunks: list[int] = Field(default_factory=list)
+    # Preenchido só quando `status == "already_processed"` — o app pode usar
+    # direto, sem enviar nenhum bloco.
+    result: CaptureResponse | None = None
+
+
+class ChunkAckResponse(BaseModel):
+    """Resposta de cada POST /api/captures/{capture_id}/chunks/{chunk_index}."""
+
+    received_chunks_count: int
+    total_chunks: int

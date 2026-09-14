@@ -1,10 +1,11 @@
 {
   "expo": {
-    "name": "Coleta Cocho - Roboflow",
+    "name": "Calculadora de cocho",
     "slug": "roboflow-cocho-capture-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -13,7 +14,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Precisamos da câmera para gravar o vídeo do cocho.",
         "NSMicrophoneUsageDescription": "Precisamos do microfone para gravar o vídeo do cocho.",
-        "NSPhotoLibraryUsageDescription": "Precisamos acessar a galeria para selecionar um vídeo do cocho."
+        "NSPhotoLibraryUsageDescription": "Precisamos acessar a galeria para selecionar um vídeo do cocho e registrar o horário real de gravação.",
+        "UIBackgroundModes": ["fetch"]
       }
     },
     "android": {
@@ -25,7 +27,11 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.lucascostaufrrj.roboflowcochocaptureapp"
+      "package": "com.lucascostaufrrj.roboflowcochocaptureapp",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#101820"
+      }
     },
     "plugins": [
       [
@@ -44,7 +50,31 @@
           "imageWidth": 200
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": false,
+          "savePhotosPermission": false,
+          "granularPermissions": ["video"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#3D8BFD"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a"],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

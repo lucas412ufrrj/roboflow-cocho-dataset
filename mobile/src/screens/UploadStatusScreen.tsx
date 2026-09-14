@@ -3,48 +3,102 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
-import type { CaptureResponse, UploadPhase } from "@/types/capture";
-import { ApiError, uploadCapture } from "@/api/client";
+import type { CaptureResponse } from "@/types/capture";
+import { getQueueItem, type QueueItem } from "@/services/offlineQueue";
+import { sincronizarItem, subscribeQueueChanges, temWifiConectado } from "@/services/syncEngine";
+import { AnimatedDots } from "@/components/AnimatedDots";
 
 type Props = NativeStackScreenProps<RootStackParamList, "UploadStatus">;
 
-export function UploadStatusScreen({ navigation, route }: Props) {
-  const { form, video, captureId } = route.params;
+type TelaFase = "verificando" | "aguardando_wifi" | "enviando" | "concluido" | "erro";
 
-  const [fase, setFase] = useState<UploadPhase>("idle");
+export function UploadStatusScreen({ navigation, route }: Props) {
+  const { captureId } = route.params;
+
+  const [fase, setFase] = useState<TelaFase>("verificando");
   const [progresso, setProgresso] = useState(0);
   const [resultado, setResultado] = useState<CaptureResponse | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [itemFila, setItemFila] = useState<QueueItem | null>(null);
 
-  const iniciarEnvio = useCallback(async () => {
+  const tentarEnviar = useCallback(async () => {
     setFase("enviando");
     setProgresso(0);
-    setErro(null);
-    setResultado(null);
-
     try {
-      const resposta = await uploadCapture({
-        captureId,
-        video,
-        form,
-        onProgress: (fracao) => {
-          setProgresso(fracao);
-          if (fracao >= 1) setFase("processando");
-        },
-      });
-      setResultado(resposta);
-      setFase("concluido");
-    } catch (error) {
-      const mensagem =
-        error instanceof ApiError ? error.message : "Falha inesperada ao enviar o vídeo.";
-      setErro(mensagem);
+      const resposta = await sincronizarItem(captureId, (fracao) =>
+        setProgresso(Math.min(fracao, 1))
+      );
+      if (resposta) {
+        setResultado(resposta);
+        setFase("concluido");
+        return;
+      }
+      const item = await getQueueItem(captureId);
+      if (!item) {
+        // Já foi enviada por outro gatilho (ex.: sincronização automática)
+        // enquanto esta tentativa estava em andamento.
+        setFase("concluido");
+        return;
+      }
+      setItemFila(item);
+      setFase("erro");
+    } catch (erro) {
+      // Não deveria acontecer (sincronizarItem já trata os próprios erros),
+      // mas se algo inesperado escapar, mostra erro em vez de travar a tela.
+      console.log("[UploadStatusScreen] erro inesperado ao tentar enviar:", erro);
+      const item = await getQueueItem(captureId).catch(() => undefined);
+      if (item) setItemFila(item);
       setFase("erro");
     }
-  }, [captureId, video, form]);
+  }, [captureId]);
 
   useEffect(() => {
-    iniciarEnvio();
-  }, [iniciarEnvio]);
+    let cancelado = false;
+
+    async function iniciar() {
+      try {
+        const item = await getQueueItem(captureId);
+        if (!item) {
+          if (!cancelado) setFase("concluido");
+          return;
+        }
+        const temWifi = await temWifiConectado();
+        if (!temWifi) {
+          if (!cancelado) {
+            setItemFila(item);
+            setFase("aguardando_wifi");
+          }
+          return;
+        }
+        if (!cancelado) await tentarEnviar();
+      } catch (erro) {
+        // Qualquer falha ao verificar a fila ou a conexão cai no lado seguro:
+        // trata como "sem wifi" em vez de deixar a tela presa em
+        // "Verificando...". O vídeo continua salvo e os gatilhos automáticos
+        // tentam de novo depois.
+        console.log("[UploadStatusScreen] erro ao verificar fila/conexão:", erro);
+        if (!cancelado) setFase("aguardando_wifi");
+      }
+    }
+
+    iniciar();
+
+    const cancelarAssinatura = subscribeQueueChanges(() => {
+      if (cancelado) return;
+      getQueueItem(captureId).then((item) => {
+        if (cancelado) return;
+        if (!item) {
+          setFase("concluido");
+        } else {
+          setItemFila(item);
+        }
+      });
+    });
+
+    return () => {
+      cancelado = true;
+      cancelarAssinatura();
+    };
+  }, [captureId, tentarEnviar]);
 
   function novaCaptura() {
     navigation.popToTop();
@@ -55,81 +109,118 @@ export function UploadStatusScreen({ navigation, route }: Props) {
       <Text style={styles.captureIdLabel}>ID da captura</Text>
       <Text style={styles.captureId}>{captureId}</Text>
 
-      {(fase === "enviando" || fase === "processando") && (
+      {fase === "verificando" && <Text style={styles.status}>Verificando...</Text>}
+
+      {fase === "aguardando_wifi" && (
         <View style={styles.progressoBox}>
-          <Text style={styles.status}>
-            {fase === "enviando" ? "Enviando vídeo..." : "Processando no servidor..."}
+          <Text style={styles.status}>Vídeo salvo no aparelho</Text>
+          <Text style={styles.progressoTexto}>
+            Sem wifi no momento. O envio acontece automaticamente assim que houver conexão wifi —
+            não precisa reabrir o app nem tentar de novo. Se preferir, também dá para reenviar
+            manualmente a qualquer momento pela aba Histórico.
           </Text>
+          <Pressable style={styles.botao} onPress={novaCaptura}>
+            <Text style={styles.botaoTexto}>Nova captura</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {fase === "enviando" && (
+        <View style={styles.progressoBox}>
+          <View style={styles.linhaStatus}>
+            <Text style={styles.status}>
+              {progresso >= 1 ? "Processando no servidor" : "Enviando vídeo"}
+            </Text>
+            <AnimatedDots />
+          </View>
           <View style={styles.barraFundo}>
             <View
               style={[
                 styles.barraPreenchida,
-                { width: `${Math.round((fase === "enviando" ? progresso : 1) * 100)}%` },
+                { width: `${Math.round(Math.min(progresso, 1) * 100)}%` },
               ]}
             />
           </View>
           <Text style={styles.progressoTexto}>
-            {fase === "enviando" ? `${Math.round(progresso * 100)}%` : "Extraindo e validando frames..."}
+            {progresso >= 1
+              ? "Vídeo enviado, aguardando o processamento terminar..."
+              : `${Math.round(progresso * 100)}%`}
           </Text>
         </View>
       )}
 
       {fase === "erro" && (
         <View style={styles.erroBox}>
-          <Text style={styles.erroTitulo}>Não foi possível concluir o envio</Text>
-          <Text style={styles.erroTexto}>{erro}</Text>
-          <Pressable style={styles.botao} onPress={iniciarEnvio}>
-            <Text style={styles.botaoTexto}>Tentar novamente</Text>
+          <Text style={styles.erroTitulo}>Não foi possível concluir o envio agora</Text>
+          <Text style={styles.erroTexto}>{itemFila?.lastError ?? "Falha desconhecida."}</Text>
+          <Text style={styles.progressoTexto}>
+            O vídeo continua salvo no aparelho. Além da nova tentativa automática assim que houver
+            wifi, também dá para reenviar manualmente pela aba Histórico a qualquer momento.
+          </Text>
+          <Pressable style={styles.botao} onPress={tentarEnviar}>
+            <Text style={styles.botaoTexto}>Tentar novamente agora</Text>
+          </Pressable>
+          <Pressable style={styles.botaoSecundario} onPress={novaCaptura}>
+            <Text style={styles.botaoSecundarioTexto}>Nova captura</Text>
           </Pressable>
         </View>
       )}
 
-      {fase === "concluido" && resultado && (
+      {fase === "concluido" && (
         <View style={styles.resultadoBox}>
           <Text style={styles.status}>Captura concluída ✅</Text>
-          {resultado.idempotente_reprocessado && (
-            <Text style={styles.avisoIdempotente}>
-              Este vídeo já havia sido processado anteriormente — nenhum frame duplicado foi
-              enviado.
+          {resultado ? (
+            <>
+              {resultado.idempotente_reprocessado && (
+                <Text style={styles.avisoIdempotente}>
+                  Este vídeo já havia sido processado anteriormente — nenhum frame duplicado foi
+                  enviado.
+                </Text>
+              )}
+
+              <View style={styles.linhaResumo}>
+                <Text style={styles.resumoLabel}>Split</Text>
+                <Text style={styles.resumoValor}>{resultado.split}</Text>
+              </View>
+              <View style={styles.linhaResumo}>
+                <Text style={styles.resumoLabel}>Frames candidatos</Text>
+                <Text style={styles.resumoValor}>{resultado.total_candidatos}</Text>
+              </View>
+              <View style={styles.linhaResumo}>
+                <Text style={[styles.resumoValor, styles.corAprovado]}>Aprovados</Text>
+                <Text style={[styles.resumoValor, styles.corAprovado]}>{resultado.total_aprovados}</Text>
+              </View>
+              <View style={styles.linhaResumo}>
+                <Text style={styles.resumoLabel}>Rejeitados por desfoque</Text>
+                <Text style={styles.resumoValor}>{resultado.total_rejeitados_desfoque}</Text>
+              </View>
+              <View style={styles.linhaResumo}>
+                <Text style={styles.resumoLabel}>Rejeitados (cocho incompleto)</Text>
+                <Text style={styles.resumoValor}>{resultado.total_rejeitados_cocho_incompleto}</Text>
+              </View>
+              <View style={styles.linhaResumo}>
+                <Text style={[styles.resumoLabel, styles.corFalha]}>Falhas de upload</Text>
+                <Text style={[styles.resumoValor, styles.corFalha]}>{resultado.total_falhas_upload}</Text>
+              </View>
+
+              <Text style={styles.subtitulo}>Detalhe por frame</Text>
+              {resultado.frames.map((frame) => (
+                <View key={frame.frame_index} style={styles.frameLinha}>
+                  <Text style={styles.frameTexto}>
+                    #{frame.frame_index} · {frame.frame_time_ms}ms · foco {frame.focus_score.toFixed(0)}
+                  </Text>
+                  <Text style={[styles.frameStatus, statusStyle(frame.status)]}>
+                    {statusLabel(frame.status)}
+                  </Text>
+                </View>
+              ))}
+            </>
+          ) : (
+            <Text style={styles.progressoTexto}>
+              O vídeo já foi enviado — a sincronização aconteceu em segundo plano, então o detalhe
+              por frame não ficou disponível nesta tela.
             </Text>
           )}
-
-          <View style={styles.linhaResumo}>
-            <Text style={styles.resumoLabel}>Split</Text>
-            <Text style={styles.resumoValor}>{resultado.split}</Text>
-          </View>
-          <View style={styles.linhaResumo}>
-            <Text style={styles.resumoLabel}>Frames candidatos</Text>
-            <Text style={styles.resumoValor}>{resultado.total_candidatos}</Text>
-          </View>
-          <View style={styles.linhaResumo}>
-            <Text style={[styles.resumoValor, styles.corAprovado]}>Aprovados</Text>
-            <Text style={[styles.resumoValor, styles.corAprovado]}>{resultado.total_aprovados}</Text>
-          </View>
-          <View style={styles.linhaResumo}>
-            <Text style={styles.resumoLabel}>Rejeitados por desfoque</Text>
-            <Text style={styles.resumoValor}>{resultado.total_rejeitados_desfoque}</Text>
-          </View>
-          <View style={styles.linhaResumo}>
-            <Text style={styles.resumoLabel}>Rejeitados (cocho incompleto)</Text>
-            <Text style={styles.resumoValor}>{resultado.total_rejeitados_cocho_incompleto}</Text>
-          </View>
-          <View style={styles.linhaResumo}>
-            <Text style={[styles.resumoLabel, styles.corFalha]}>Falhas de upload</Text>
-            <Text style={[styles.resumoValor, styles.corFalha]}>{resultado.total_falhas_upload}</Text>
-          </View>
-
-          <Text style={styles.subtitulo}>Detalhe por frame</Text>
-          {resultado.frames.map((frame) => (
-            <View key={frame.frame_index} style={styles.frameLinha}>
-              <Text style={styles.frameTexto}>
-                #{frame.frame_index} · {frame.frame_time_ms}ms · foco {frame.focus_score.toFixed(0)}
-              </Text>
-              <Text style={[styles.frameStatus, statusStyle(frame.status)]}>
-                {statusLabel(frame.status)}
-              </Text>
-            </View>
-          ))}
 
           <Pressable style={styles.botao} onPress={novaCaptura}>
             <Text style={styles.botaoTexto}>Nova captura</Text>
@@ -171,6 +262,7 @@ const styles = StyleSheet.create({
   captureIdLabel: { color: "#8A8F98", fontSize: 12 },
   captureId: { color: "#D0D3D8", fontSize: 13, marginBottom: 8, fontFamily: "monospace" },
   status: { color: "#F5F5F5", fontSize: 17, fontWeight: "700" },
+  linhaStatus: { flexDirection: "row", alignItems: "center", gap: 8 },
   progressoBox: { gap: 10 },
   barraFundo: { height: 10, borderRadius: 6, backgroundColor: "#1B2530", overflow: "hidden" },
   barraPreenchida: { height: 10, backgroundColor: "#3D8BFD" },
@@ -203,4 +295,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   botaoTexto: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  botaoSecundario: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#3D8BFD",
+  },
+  botaoSecundarioTexto: { color: "#3D8BFD", fontSize: 15, fontWeight: "600" },
 });

@@ -1,19 +1,93 @@
 import { useEffect, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import type { ReactNode } from "react";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useEvent } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
+import type { CaptureFormData } from "@/types/capture";
 import { formatDuration, formatFileSize, isDurationValid, MAX_DURATION_S, MIN_DURATION_S } from "@/utils/video";
 import { generateCaptureId } from "@/utils/uuid";
+import { parsePesoInput } from "@/utils/peso";
+import { enqueueCapture } from "@/services/offlineQueue";
+import { registrarNoHistorico } from "@/services/historicoEnvios";
+import { gerarMiniatura } from "@/services/thumbnails";
+import { obterNomeOperador } from "@/services/operador";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Preview">;
+type CampoRevisao = "peso" | "tipoAlimento" | "cochoId" | "observacoes";
+
+/**
+ * Linha compacta de revisão: mostra o valor com um link "editar" sublinhado
+ * na outra ponta. Ao tocar, o valor dá lugar ao campo de edição (`children`)
+ * até a pessoa tocar em "salvar", quando volta a mostrar só o texto — sem
+ * deixar a tela cheia de caixa de input o tempo todo.
+ */
+function LinhaRevisao({
+  label,
+  editando,
+  valorExibicao,
+  temValor,
+  onIniciarEdicao,
+  onSalvar,
+  children,
+}: {
+  label: string;
+  editando: boolean;
+  valorExibicao: string;
+  temValor: boolean;
+  onIniciarEdicao: () => void;
+  onSalvar: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.campoRevisao}>
+      <View style={styles.infoLinha}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <View style={styles.valorEEditar}>
+          {!editando && (
+            <Text style={[styles.infoValor, !temValor && styles.infoValorVazio]} numberOfLines={1}>
+              {valorExibicao}
+            </Text>
+          )}
+          <Pressable onPress={editando ? onSalvar : onIniciarEdicao} hitSlop={8}>
+            <Text style={styles.linkEditar}>{editando ? "salvar" : "editar"}</Text>
+          </Pressable>
+        </View>
+      </View>
+      {editando && <View style={styles.editorWrap}>{children}</View>}
+    </View>
+  );
+}
 
 export function PreviewScreen({ navigation, route }: Props) {
   const { form, video } = route.params;
   const [durationMs, setDurationMs] = useState(video.durationMs);
   const [duracaoCarregada, setDuracaoCarregada] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  // Os dados vêm preenchidos do formulário anterior, mas continuam editáveis
+  // aqui: a pessoa pode revisar e corrigir sem precisar voltar pra tela de
+  // formulário (o que, de qualquer forma, também exigiria regravar o vídeo).
+  const [pesoKg, setPesoKg] = useState(form.pesoKg);
+  const [tipoAlimento, setTipoAlimento] = useState(form.tipoAlimento ?? "");
+  const [cochoId, setCochoId] = useState(form.cochoId ?? "");
+  const [observacoes, setObservacoes] = useState(form.observacoes ?? "");
+  const [erroPeso, setErroPeso] = useState<string | null>(null);
+
+  // Só um campo por vez fica em modo de edição, pra manter a tela compacta.
+  const [campoEditando, setCampoEditando] = useState<CampoRevisao | null>(null);
 
   const player = useVideoPlayer(video.uri, (p) => {
     p.loop = false;
@@ -30,7 +104,28 @@ export function PreviewScreen({ navigation, route }: Props) {
 
   const duracaoValida = duracaoCarregada && isDurationValid(durationMs);
 
-  function confirmarEEnviar() {
+  function salvarCampo(campo: CampoRevisao) {
+    if (campo === "peso") {
+      if (parsePesoInput(pesoKg) === null) {
+        setErroPeso("Informe o peso real em kg (ex.: 12.5).");
+        return; // mantém o campo aberto pra pessoa corrigir
+      }
+      setErroPeso(null);
+    }
+    if (campo === "tipoAlimento") setTipoAlimento((v) => v.trim());
+    if (campo === "cochoId") setCochoId((v) => v.trim());
+    if (campo === "observacoes") setObservacoes((v) => v.trim());
+    setCampoEditando(null);
+  }
+
+  async function confirmarEEnviar() {
+    if (parsePesoInput(pesoKg) === null) {
+      setCampoEditando("peso");
+      setErroPeso("Informe o peso real em kg (ex.: 12.5).");
+      return;
+    }
+    setErroPeso(null);
+
     if (!duracaoCarregada) {
       Alert.alert("Aguarde", "Carregando informações do vídeo...");
       return;
@@ -44,70 +139,223 @@ export function PreviewScreen({ navigation, route }: Props) {
       return;
     }
 
+    // Nome de quem está gravando, configurado uma vez no Lobby — não é um
+    // campo editável aqui na Prévia, é uma configuração do aparelho (ver
+    // `services/operador.ts`).
+    const operador = await obterNomeOperador();
+    const formAtualizado: CaptureFormData = {
+      pesoKg,
+      tipoAlimento: tipoAlimento.trim() || undefined,
+      cochoId: cochoId.trim() || undefined,
+      observacoes: observacoes.trim() || undefined,
+      operador,
+    };
+
+    // A partir daqui a captura já está "segura": ela é copiada para um
+    // armazenamento durável do app e registrada na fila local ANTES de
+    // qualquer tentativa de envio. Se não houver wifi agora, o app tenta de
+    // novo sozinho mais tarde — ver src/services/syncEngine.ts.
+    setSalvando(true);
     const captureId = generateCaptureId();
-    navigation.navigate("UploadStatus", {
-      form,
-      video: { ...video, durationMs },
-      captureId,
-    });
+    try {
+      const itemFila = await enqueueCapture({
+        captureId,
+        video: { ...video, durationMs },
+        form: formAtualizado,
+      });
+      // Gerada a partir da cópia durável do vídeo (não do arquivo original,
+      // que pode sumir do cache do seletor depois) — guardada numa pasta
+      // própria que sobrevive mesmo depois do vídeo ser apagado ao enviar
+      // com sucesso. Ver `services/thumbnails.ts`.
+      const thumbnailUri = await gerarMiniatura(captureId, itemFila.videoUri);
+      // Histórico é só pra exibição — nunca deve impedir o envio de verdade,
+      // então falha aqui é ignorada (a captura já está segura na fila de
+      // qualquer forma). Aguarda em vez de disparar e esquecer pra reduzir a
+      // janela de captura "órfã" (na fila mas sem registro no Histórico);
+      // `reconciliarComFila` cobre o resto dos casos, inclusive esse aqui se
+      // ele mesmo falhar.
+      await registrarNoHistorico({ captureId, form: formAtualizado, thumbnailUri }).catch(() => undefined);
+    } catch (error) {
+      setSalvando(false);
+      Alert.alert(
+        "Erro ao salvar",
+        "Não foi possível salvar o vídeo para envio. Verifique o espaço livre no aparelho e tente novamente."
+      );
+      return;
+    }
+
+    navigation.navigate("UploadStatus", { captureId });
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.playerWrapper}>
-        <VideoView style={styles.player} player={player} nativeControls contentFit="contain" />
-      </View>
-
-      <View style={styles.infoBox}>
-        <View style={styles.infoLinha}>
-          <Text style={styles.infoLabel}>Duração</Text>
-          <Text style={[styles.infoValor, duracaoCarregada && !duracaoValida && styles.infoInvalida]}>
-            {duracaoCarregada ? formatDuration(durationMs) : "Carregando..."}
-          </Text>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <View style={styles.container}>
+        <View style={styles.playerWrapper}>
+          <VideoView style={styles.player} player={player} nativeControls contentFit="contain" />
         </View>
-        <View style={styles.infoLinha}>
-          <Text style={styles.infoLabel}>Tamanho</Text>
-          <Text style={styles.infoValor}>{formatFileSize(video.sizeBytes)}</Text>
-        </View>
-        <View style={styles.infoLinha}>
-          <Text style={styles.infoLabel}>Peso informado</Text>
-          <Text style={styles.infoValor}>{form.pesoKg} kg</Text>
-        </View>
-      </View>
 
-      {duracaoCarregada && !duracaoValida && (
-        <Text style={styles.aviso}>
-          Duração fora do intervalo de {MIN_DURATION_S}–{MAX_DURATION_S}s. Grave novamente.
-        </Text>
-      )}
-
-      <View style={styles.botoesLinha}>
-        <Pressable style={styles.botaoSecundario} onPress={() => navigation.goBack()}>
-          <Text style={styles.botaoSecundarioTexto}>Regravar</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.botao, !duracaoValida && styles.botaoDesabilitado]}
-          onPress={confirmarEEnviar}
-          disabled={!duracaoValida}
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.scrollConteudo}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.botaoTexto}>Enviar captura</Text>
-        </Pressable>
+          <View style={styles.infoBox}>
+            <View style={styles.infoLinha}>
+              <Text style={styles.infoLabel}>Duração</Text>
+              <Text style={[styles.infoValor, duracaoCarregada && !duracaoValida && styles.infoInvalida]}>
+                {duracaoCarregada ? formatDuration(durationMs) : "Carregando..."}
+              </Text>
+            </View>
+            <View style={styles.infoLinha}>
+              <Text style={styles.infoLabel}>Tamanho</Text>
+              <Text style={styles.infoValor}>{formatFileSize(video.sizeBytes)}</Text>
+            </View>
+
+            <LinhaRevisao
+              label="Peso informado"
+              editando={campoEditando === "peso"}
+              valorExibicao={`${pesoKg} kg`}
+              temValor
+              onIniciarEdicao={() => setCampoEditando("peso")}
+              onSalvar={() => salvarCampo("peso")}
+            >
+              <TextInput
+                style={styles.input}
+                value={pesoKg}
+                onChangeText={setPesoKg}
+                placeholder="Ex.: 12.5"
+                placeholderTextColor="#8A8F98"
+                keyboardType="decimal-pad"
+                autoFocus
+              />
+            </LinhaRevisao>
+            {erroPeso && <Text style={styles.erro}>{erroPeso}</Text>}
+
+            <LinhaRevisao
+              label="Tipo de alimento"
+              editando={campoEditando === "tipoAlimento"}
+              valorExibicao={tipoAlimento || "Não informado"}
+              temValor={!!tipoAlimento}
+              onIniciarEdicao={() => setCampoEditando("tipoAlimento")}
+              onSalvar={() => salvarCampo("tipoAlimento")}
+            >
+              <TextInput
+                style={styles.input}
+                value={tipoAlimento}
+                onChangeText={setTipoAlimento}
+                placeholder="Ex.: Silagem, Ração"
+                placeholderTextColor="#8A8F98"
+                autoFocus
+              />
+            </LinhaRevisao>
+
+            <LinhaRevisao
+              label="ID do cocho"
+              editando={campoEditando === "cochoId"}
+              valorExibicao={cochoId || "Não informado"}
+              temValor={!!cochoId}
+              onIniciarEdicao={() => setCampoEditando("cochoId")}
+              onSalvar={() => salvarCampo("cochoId")}
+            >
+              <TextInput
+                style={styles.input}
+                value={cochoId}
+                onChangeText={setCochoId}
+                placeholder="Ex.: cocho-07"
+                placeholderTextColor="#8A8F98"
+                autoFocus
+              />
+            </LinhaRevisao>
+          </View>
+
+          <View style={styles.observacoesBox}>
+            <View style={styles.infoLinha}>
+              <Text style={styles.infoLabel}>Observações</Text>
+              <Pressable
+                onPress={() =>
+                  campoEditando === "observacoes" ? salvarCampo("observacoes") : setCampoEditando("observacoes")
+                }
+                hitSlop={8}
+              >
+                <Text style={styles.linkEditar}>{campoEditando === "observacoes" ? "salvar" : "editar"}</Text>
+              </Pressable>
+            </View>
+            {campoEditando === "observacoes" ? (
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={observacoes}
+                onChangeText={setObservacoes}
+                placeholder="Alguma observação sobre esta captura?"
+                placeholderTextColor="#8A8F98"
+                multiline
+                numberOfLines={3}
+                autoFocus
+              />
+            ) : (
+              <Text style={[styles.observacoesTexto, !observacoes && styles.infoValorVazio]}>
+                {observacoes || "Não informado"}
+              </Text>
+            )}
+          </View>
+
+          {duracaoCarregada && !duracaoValida && (
+            <Text style={styles.aviso}>
+              Duração fora do intervalo de {MIN_DURATION_S}–{MAX_DURATION_S}s. Grave novamente.
+            </Text>
+          )}
+        </ScrollView>
+
+        <View style={styles.botoesLinha}>
+          <Pressable style={styles.botaoSecundario} onPress={() => navigation.goBack()} disabled={salvando}>
+            <Text style={styles.botaoSecundarioTexto}>Regravar</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.botao, (!duracaoValida || salvando) && styles.botaoDesabilitado]}
+            onPress={confirmarEEnviar}
+            disabled={!duracaoValida || salvando}
+          >
+            <Text style={styles.botaoTexto}>{salvando ? "Salvando..." : "Enviar captura"}</Text>
+          </Pressable>
+        </View>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   container: { flex: 1, padding: 20, gap: 16 },
-  playerWrapper: { flex: 1, borderRadius: 14, overflow: "hidden", backgroundColor: "#000" },
+  // Altura máxima em vez de flex:1 puro: dá espaço pros campos abaixo sem
+  // que o vídeo suma da tela quando o teclado abre pra editar algo.
+  playerWrapper: { flex: 1, maxHeight: "38%", borderRadius: 14, overflow: "hidden", backgroundColor: "#000" },
   player: { flex: 1 },
+  scrollConteudo: { gap: 16, paddingBottom: 4 },
   infoBox: { backgroundColor: "#1B2530", borderRadius: 12, padding: 16, gap: 10 },
-  infoLinha: { flexDirection: "row", justifyContent: "space-between" },
+  infoLinha: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
   infoLabel: { color: "#B5B9C0", fontSize: 14 },
-  infoValor: { color: "#F5F5F5", fontSize: 14, fontWeight: "600" },
+  infoValor: { color: "#F5F5F5", fontSize: 14, fontWeight: "600", flexShrink: 1 },
+  infoValorVazio: { color: "#8A8F98", fontWeight: "400", fontStyle: "italic" },
   infoInvalida: { color: "#FF6B6B" },
+  campoRevisao: { gap: 8 },
+  valorEEditar: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1, justifyContent: "flex-end" },
+  linkEditar: { color: "#3D8BFD", fontSize: 13, fontWeight: "600", textDecorationLine: "underline" },
+  editorWrap: { marginTop: -2 },
+  observacoesBox: { backgroundColor: "#1B2530", borderRadius: 12, padding: 16, gap: 8 },
+  observacoesTexto: { color: "#F5F5F5", fontSize: 14, lineHeight: 20 },
   aviso: { color: "#FFB020", fontSize: 13 },
-  botoesLinha: { flexDirection: "row", gap: 12 },
+  input: {
+    backgroundColor: "#101820",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: "#F5F5F5",
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: "#2A3542",
+  },
+  textArea: { minHeight: 80, textAlignVertical: "top" },
+  erro: { color: "#FF6B6B", marginTop: -4, fontSize: 13 },
+  botoesLinha: { flexDirection: "row", gap: 12, paddingTop: 4 },
   botao: {
     flex: 1,
     backgroundColor: "#3D8BFD",

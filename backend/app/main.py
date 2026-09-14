@@ -9,6 +9,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.captures import router as captures_router
+from app.api.chunked_uploads import router as chunked_uploads_router
 from app.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import limiter
@@ -38,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(captures_router)
+app.include_router(chunked_uploads_router)
 
 
 @app.get("/health", tags=["infra"])

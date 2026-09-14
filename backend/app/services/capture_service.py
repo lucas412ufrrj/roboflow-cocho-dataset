@@ -231,6 +231,8 @@ class CaptureService:
                     tipo_alimento=form.tipo_alimento,
                     cocho_id=form.cocho_id,
                     observacoes=form.observacoes,
+                    recorded_at=form.recorded_at,
+                    operador=form.operador,
                 )
 
                 image_bytes = encode_jpeg(frame.frame_bgr)

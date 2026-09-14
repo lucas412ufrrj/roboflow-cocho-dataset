@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from app.config import get_settings
 from app.services.capture_service import CaptureService
+from app.services.chunked_upload_service import ChunkedUploadService
 from app.services.idempotency import FileIdempotencyStore, IdempotencyStore
 from app.services.roboflow_client import RoboflowClient
 from app.services.trough_validator import get_trough_validator
@@ -28,3 +29,12 @@ def get_capture_service() -> CaptureService:
         idempotency_store=get_idempotency_store(),
         settings=settings,
     )
+
+
+@lru_cache
+def get_chunked_upload_service() -> ChunkedUploadService:
+    # `@lru_cache` garante uma única instância por processo — importante
+    # aqui porque `ChunkedUploadService` mantém um dicionário de locks em
+    # memória por `capture_id` (ver `chunked_upload_service.py`), que só
+    # protege contra corrida se for compartilhado entre as chamadas.
+    return ChunkedUploadService(storage=get_storage_backend())
