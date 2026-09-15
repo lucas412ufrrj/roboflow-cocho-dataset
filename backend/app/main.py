@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,12 +13,27 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.captures import router as captures_router
 from app.api.chunked_uploads import router as chunked_uploads_router
+from app.api.deps import get_roboflow_client, get_shared_trough_validator
 from app.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import limiter
 
 configure_logging()
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    # Shutdown: fecha os clients HTTP compartilhados criados em
+    # `app/api/deps.py` (ver comentários lá) — evita deixar conexões abertas
+    # com o Roboflow penduradas quando o processo encerra.
+    await get_roboflow_client().aclose()
+    trough_validator = get_shared_trough_validator()
+    trough_aclose = getattr(trough_validator, "aclose", None)
+    if trough_aclose is not None:
+        await trough_aclose()
+
 
 app = FastAPI(
     title="Backend de Coleta de Vídeos — Dataset Roboflow (Peso de Alimento no Cocho)",
@@ -25,6 +43,7 @@ app = FastAPI(
         f"'{settings.ROBOFLOW_WORKSPACE}'."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from app.storage.base import StorageBackend
+from app.storage.base import DEFAULT_STREAM_CHUNK_SIZE, AsyncReadable, StorageBackend
 
 
 class LocalStorageBackend(StorageBackend):
@@ -55,3 +55,46 @@ class LocalStorageBackend(StorageBackend):
 
     async def exists(self, key: str) -> bool:
         return await asyncio.to_thread(self._resolve(key).exists)
+
+    async def save_stream(
+        self,
+        key: str,
+        stream: AsyncReadable,
+        *,
+        max_size_bytes: int | None = None,
+        chunk_size: int = DEFAULT_STREAM_CHUNK_SIZE,
+    ) -> int:
+        """Grava o stream direto em disco, um pedaço por vez — nunca mantém
+        o arquivo inteiro como um `bytes` só em memória (ver docstring da
+        interface em `app/storage/base.py`). É essencial sob upload
+        concorrente: sem isso, N pessoas da equipe enviando vídeo grande ao
+        mesmo tempo somam N vídeos inteiros na RAM do processo simultaneamente.
+        """
+        path = self._resolve(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        def _open():
+            return open(path, "wb")
+
+        handle = await asyncio.to_thread(_open)
+        total = 0
+        try:
+            while True:
+                chunk = await stream.read(chunk_size)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if max_size_bytes is not None and total > max_size_bytes:
+                    raise ValueError(
+                        f"Stream excede o tamanho máximo permitido de {max_size_bytes} bytes."
+                    )
+                await asyncio.to_thread(handle.write, chunk)
+        except BaseException:
+            await asyncio.to_thread(handle.close)
+            # Arquivo parcial não serve pra nada (vídeo incompleto/rejeitado)
+            # — remove pra não deixar lixo em disco.
+            await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
+            raise
+        else:
+            await asyncio.to_thread(handle.close)
+            return total

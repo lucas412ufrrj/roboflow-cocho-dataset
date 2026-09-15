@@ -38,14 +38,18 @@ def patched_pipeline(monkeypatch):
     def fake_needs_normalization(probe, mime_type):
         return False
 
-    async def fake_extract_frames(path, fps):
+    async def fake_iter_frames(path, fps):
+        # `capture_service.py` consome frames via `iter_frames` (streaming,
+        # `async for`), não mais via `extract_frames` (que devolvia a lista
+        # inteira de uma vez) — precisa ser um gerador assíncrono, não uma
+        # corrotina que devolve uma lista.
         frame = np.random.default_rng(1).integers(0, 255, size=(64, 64, 3), dtype=np.uint8)
-        return [ExtractedFrame(index=0, time_ms=0, frame_bgr=frame)]
+        yield ExtractedFrame(index=0, time_ms=0, frame_bgr=frame)
 
     monkeypatch.setattr(capture_service_module, "probe_video", fake_probe_video)
     monkeypatch.setattr(capture_service_module, "normalize_to_h264_mp4", fake_normalize)
     monkeypatch.setattr(capture_service_module, "needs_normalization", fake_needs_normalization)
-    monkeypatch.setattr(capture_service_module, "extract_frames", fake_extract_frames)
+    monkeypatch.setattr(capture_service_module, "iter_frames", fake_iter_frames)
     # Focus score alto o suficiente para passar no limiar padrão dos testes.
     monkeypatch.setattr(capture_service_module, "compute_focus_score", lambda frame: 500.0)
 

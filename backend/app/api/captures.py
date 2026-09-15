@@ -1,7 +1,6 @@
 """Rota principal: recebe o vídeo do app móvel e dispara o pipeline de captura."""
 
 import logging
-import resource
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -13,10 +12,19 @@ from app.models.schemas import CaptureFormInput, CaptureResponse
 from app.services.capture_service import CaptureService
 from app.services.video_validation import VideoValidationError
 
+try:
+    import resource  # POSIX apenas (Linux/Render) — não existe no Windows.
+except ImportError:  # pragma: no cover - só acontece em Windows
+    resource = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 
 def _peak_rss_mb() -> float:
+    if resource is None:
+        # Windows não tem `resource` — métrica só pra depurar memória no
+        # Render (Linux); localmente no Windows não há teto de 512MB.
+        return 0.0
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 
 router = APIRouter(prefix="/api", tags=["captures"])
@@ -69,19 +77,21 @@ async def create_capture(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
     resolved_capture_id = capture_id or str(uuid.uuid4())
-    video_bytes = await video.read()
-    logger.info(
-        "create_capture: vídeo lido (%.1fMB), pico memória: %.1fMB",
-        len(video_bytes) / 1024 / 1024, _peak_rss_mb(),
-    )
+    # Streaming direto pro storage (ver `process_capture_from_stream` em
+    # `capture_service.py`): evita materializar o vídeo inteiro (até
+    # MAX_VIDEO_SIZE_MB) como um `bytes` só em memória, o que sob upload
+    # concorrente de várias pessoas da equipe some rápido demais para o teto
+    # de memória do Render. Substitui o antigo `await video.read()`.
+    max_size_bytes = int(get_settings().MAX_VIDEO_SIZE_MB * 1024 * 1024)
 
     try:
-        return await capture_service.process_capture(
+        return await capture_service.process_capture_from_stream(
             capture_id=resolved_capture_id,
-            video_bytes=video_bytes,
+            video_stream=video,
             mime_type=video.content_type or "application/octet-stream",
             original_filename=video.filename or "video.mp4",
             form=form,
+            max_size_bytes=max_size_bytes,
         )
     except VideoValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

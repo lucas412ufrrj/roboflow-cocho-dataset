@@ -20,12 +20,37 @@ def get_idempotency_store() -> IdempotencyStore:
     return FileIdempotencyStore(path)
 
 
+@lru_cache
+def get_roboflow_client() -> RoboflowClient:
+    # Compartilhado entre requisições. Antes, `get_capture_service` criava um
+    # `RoboflowClient` (e portanto um `httpx.AsyncClient` novo, com suas
+    # próprias conexões) a cada requisição, e nunca fechava (`aclose()`)
+    # nenhum deles — um vazamento de conexão por vídeo processado, que piora
+    # exatamente sob upload concorrente (mais vídeos processados ao mesmo
+    # tempo = mais clientes nunca fechados se acumulando). Compartilhar aqui
+    # também dá reuso real do pool de conexões entre vídeos diferentes, não
+    # só entre os frames de um mesmo vídeo. Fechado no shutdown do FastAPI
+    # (ver `lifespan` em `app/main.py`).
+    return RoboflowClient(settings=get_settings())
+
+
+@lru_cache
+def get_shared_trough_validator():
+    # Mesmo raciocínio de `get_roboflow_client`: quando `TROUGH_VALIDATOR=
+    # roboflow` (não é o padrão hoje, mas fica pronto pra quando for), a
+    # implementação real também guarda seu próprio `httpx.AsyncClient`
+    # interno — sem cache aqui, cada requisição criaria (e vazaria) mais um.
+    # `MockTroughValidator` (o padrão) não abre nenhuma conexão, então
+    # cachear não muda nada de comportamento pra ele.
+    return get_trough_validator(get_settings())
+
+
 def get_capture_service() -> CaptureService:
     settings = get_settings()
     return CaptureService(
         storage=get_storage_backend(),
-        trough_validator=get_trough_validator(settings),
-        roboflow_client=RoboflowClient(settings=settings),
+        trough_validator=get_shared_trough_validator(),
+        roboflow_client=get_roboflow_client(),
         idempotency_store=get_idempotency_store(),
         settings=settings,
     )
