@@ -54,7 +54,7 @@ export function ChangelogModal({ visivel, onFechar }: Props) {
         </Pressable>
 
         <ScrollView contentContainerStyle={[styles.conteudo, { paddingTop: insets.top + 72 }]}>
-          <Text style={styles.titulo}>Novidades</Text>
+          <Text style={styles.titulo}>O que há de novo?</Text>
           {grupos.map((grupo) => (
             <View key={grupo.data} style={styles.bloco}>
               <Text style={styles.dataEntrada}>{grupo.data}</Text>

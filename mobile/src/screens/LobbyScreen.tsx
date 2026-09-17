@@ -6,6 +6,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import { usePendingCount } from "@/hooks/usePendingCount";
 import { obterNomeOperador, salvarNomeOperador } from "@/services/operador";
+import { abrirChangelog } from "@/services/changelogControl";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Lobby">;
 
@@ -124,9 +125,15 @@ export function LobbyScreen({ navigation }: Props) {
         </Pressable>
       )}
 
-      <Pressable style={styles.linkSobre} onPress={() => navigation.navigate("Sobre")} hitSlop={8}>
-        <Text style={styles.linkSobreTexto}>Sobre esta versão</Text>
-      </Pressable>
+      <View style={styles.linksRodape}>
+        <Pressable style={styles.linkSobre} onPress={() => navigation.navigate("Sobre")} hitSlop={8}>
+          <Text style={styles.linkSobreTexto}>Versão</Text>
+        </Pressable>
+        <Text style={styles.linksRodapeSeparador}>·</Text>
+        <Pressable style={styles.linkSobre} onPress={abrirChangelog} hitSlop={8}>
+          <Text style={styles.linkSobreTexto}>O que há de novo?</Text>
+        </Pressable>
+      </View>
 
       <Modal
         visible={editandoOperador}
@@ -275,6 +282,16 @@ const styles = StyleSheet.create({
   },
   avisoPendenteTexto: { color: "#3D8BFD", fontSize: 13, fontWeight: "700" },
   avisoPendenteSeta: { color: "#3D8BFD", fontSize: 20, fontWeight: "700" },
+  linksRodape: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  linksRodapeSeparador: {
+    color: "#8A8F98",
+    fontSize: 12,
+  },
   linkSobre: {
     alignSelf: "center",
     paddingVertical: 4,

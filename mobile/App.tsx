@@ -20,6 +20,7 @@ import { configurarNotificacoes } from "@/services/notifications";
 import { registrarSincronizacaoEmSegundoPlano } from "@/tasks/backgroundSyncTask";
 import { CHANGELOG } from "@/data/changelog";
 import { marcarVersaoComoVista, obterUltimaVersaoVista } from "@/services/changelogVisto";
+import { registrarAbridorDeChangelog } from "@/services/changelogControl";
 import { verificarBuildDesatualizada } from "@/services/buildCheck";
 import { ChangelogModal } from "@/components/ChangelogModal";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -34,6 +35,10 @@ export default function App() {
     // rodar, pra não perder o aviso de uma captura que termina de enviar
     // logo nos primeiros instantes depois de abrir o app.
     configurarNotificacoes();
+
+    // Permite abrir a tela de novidades manualmente (botão "O que há de
+    // novo?" na Lobby), além da abertura automática logo abaixo.
+    registrarAbridorDeChangelog(() => setChangelogVisivel(true));
 
     // Cobre o caso mais comum: a equipe grava na fazenda sem sinal e só
     // reabre o app depois, já com wifi (mesmo que seja só pra ver o app, não

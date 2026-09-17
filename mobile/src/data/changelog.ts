@@ -19,27 +19,27 @@ export const CHANGELOG: ChangelogEntry[] = [
     versao: "2026-09-17",
     data: "17/09/2026",
     itens: [
-      "Gravar vídeo agora usa a câmera do próprio app: aperte para gravar e ela para sozinha depois de alguns segundos, com uma vibração avisando que terminou — sem precisar controlar o tempo.",
+      "Gravar vídeo agora usa a câmera do próprio app: aperte para gravar e ela para sozinha depois de alguns segundos, com uma vibração avisando que terminou.",
     ],
   },
   {
     versao: "2026-09-14-6",
     data: "14/09/2026",
     itens: [
-      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez (aparece um aviso na tela inicial).",
+      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez.",
       "Agora o horário em que o vídeo foi gravado sobe como metadado para complementar ainda mais a pool de dados do experimento.",
-      "Notificação avisando quando uma captura pendente termina de enviar, ou quando um envio está falhando repetidamente — mesmo com o app fechado.",
+      "Notificação avisando quando uma captura pendente termina de enviar, ou quando um envio está falhando repetidamente.",
       "O Histórico agora mostra uma miniatura de cada vídeo, além do texto.",
-      "Vídeos grandes agora são enviados em pedaços: se a conexão cair no meio do envio, a próxima tentativa continua de onde parou, em vez de reenviar tudo de novo.",
+      "Vídeos grandes agora são enviados em pedaços: se a conexão cair no meio do envio, a próxima tentativa continua de onde parou.",
     ],
   },
   {
     versao: "2026-09-14-5",
     data: "14/09/2026",
     itens: [
-      "Lobby e tela de nova captura agora mostram um aviso quando existem capturas paradas aguardando envio, sem precisar abrir o Histórico pra descobrir.",
-      "Nova tela \"Sobre\" (link no rodapé da tela inicial) mostra a versão instalada",
-      "Botão \"Exportar histórico\" na aba Histórico gera um resumo em texto de todas as capturas.",
+      "Lobby e tela de nova captura agora mostram um aviso quando existem capturas paradas aguardando envio.",
+      "Nova tela \"Sobre\" (link no rodapé da tela inicial) mostra a versão instalada.",
+      "Botão \"Exportar histórico\" na aba Histórico gera um resumo em texto.",
     ],
   },
   {
@@ -81,7 +81,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     data: "10/09/2026",
     itens: [
       "Corrigido: a barra de progresso do envio podia passar de 100%.",
-      "A tela de envio agora mostra pontinhos animados enquanto o vídeo está sendo enviado ou processado.",
+      "A tela de envio agora mostra pontinhos animados enquanto o vídeo está sendo enviado ou processado, pra ficar claro que não travou.",
       "O aviso de atualização baixando também ganhou os pontinhos animados.",
     ],
   },
@@ -98,8 +98,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     itens: [
       "Capturas agora ficam salvas no aparelho assim que confirmadas e são enviadas sozinhas quando o wifi conectar, mesmo com o app fechado.",
       "Se um erro grave acontecer, o app agora mostra uma mensagem explicando o que houve em vez de ficar com a tela travada sem explicação.",
-      "Aviso de atualização baixando/pronta para aplicar"
-      "Changelog agora mostra o que mudou em cada versão, pra todo mundo da equipe ficar sabendo das novidades.",
+      "Aviso de atualização baixando/pronta para aplicar, e esta tela de novidades.",
     ],
   },
 ];
