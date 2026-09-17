@@ -37,3 +37,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Ferramentas locais de assistente de código (não é parte do app)
+.agents/
+skills-lock.json
