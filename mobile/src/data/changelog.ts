@@ -26,7 +26,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     versao: "2026-09-14-6",
     data: "14/09/2026",
     itens: [
-      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez (aparece um aviso na tela inicial). Fica salvo no aparelho e é anexado a cada captura enviada, sem precisar digitar de novo — dá pra trocar depois pelo link \"Operador(a)\" no rodapé da tela inicial.",
+      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez (aparece um aviso na tela inicial).",
       "Agora o horário em que o vídeo foi gravado sobe como metadado para complementar ainda mais a pool de dados do experimento.",
       "Notificação avisando quando uma captura pendente termina de enviar, ou quando um envio está falhando repetidamente — mesmo com o app fechado.",
       "O Histórico agora mostra uma miniatura de cada vídeo, além do texto.",
@@ -38,22 +38,22 @@ export const CHANGELOG: ChangelogEntry[] = [
     data: "14/09/2026",
     itens: [
       "Lobby e tela de nova captura agora mostram um aviso quando existem capturas paradas aguardando envio, sem precisar abrir o Histórico pra descobrir.",
-      "Nova tela \"Sobre\" (link no rodapé da tela inicial) mostra a versão instalada, útil pra conferir rapidinho se todo mundo da equipe está atualizado.",
-      "Botão \"Exportar histórico\" na aba Histórico gera um resumo em texto de todas as capturas, pra mandar por WhatsApp ou salvar.",
+      "Nova tela \"Sobre\" (link no rodapé da tela inicial) mostra a versão instalada",
+      "Botão \"Exportar histórico\" na aba Histórico gera um resumo em texto de todas as capturas.",
     ],
   },
   {
     versao: "2026-09-14-4",
     data: "14/09/2026",
     itens: [
-      "Histórico agora mostra o percentual de frames aprovados ao lado da contagem (ex.: 8/9 · 89%), colorido pra ficar fácil notar de relance uma captura que rendeu pouco.",
+      "Histórico agora mostra o percentual de frames aprovados ao lado da contagem (ex.: 8/9 · 89%).",
     ],
   },
   {
     versao: "2026-09-14-3",
     data: "14/09/2026",
     itens: [
-      "Tela de Prévia agora mostra peso, tipo de alimento, ID do cocho e observações com um link 'editar' em cada um — toca pra corrigir ali mesmo, sem precisar voltar pra tela de formulário.",
+      "Tela de Prévia agora mostra peso, tipo de alimento, ID do cocho e observações com possibilidade de alteração antes de enviar.",
     ],
   },
   {
@@ -61,14 +61,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     data: "14/09/2026",
     itens: [
       "Botão 'Sincronizar agora' na tela de Histórico, pra forçar o envio de tudo que estiver pendente sem esperar.",
-      "Cada captura pendente agora tem um menu (⋮) com a opção de cancelar o envio — apaga o vídeo do aparelho, útil se o arquivo estiver corrompido ou travando a fila.",
+      "Cada captura pendente agora tem um menu (⋮) com a opção de cancelar o envio.",
     ],
   },
   {
     versao: "2026-09-14",
     data: "14/09/2026",
     itens: [
-      "Nova aba de Histórico (botão no topo da tela de nova captura), mostrando data e hora de cada captura, se já foi enviada ou está aguardando sincronização, e quantos frames foram aprovados depois do envio.",
+      "Nova aba de Histórico, mostrando data e hora de cada captura, se já foi enviada ou está aguardando sincronização, e quantos frames foram aprovados depois do envio.",
     ],
   },
   {
@@ -81,7 +81,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     data: "10/09/2026",
     itens: [
       "Corrigido: a barra de progresso do envio podia passar de 100%.",
-      "A tela de envio agora mostra pontinhos animados enquanto o vídeo está sendo enviado ou processado, pra ficar claro que não travou.",
+      "A tela de envio agora mostra pontinhos animados enquanto o vídeo está sendo enviado ou processado.",
       "O aviso de atualização baixando também ganhou os pontinhos animados.",
     ],
   },
@@ -89,7 +89,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     versao: "2026-09-10-2",
     data: "10/09/2026",
     itens: [
-      "Corrigido: a tela de envio podia ficar travada numa tela preta ao abrir, por causa de uma importação errada no código (achado com o log do Android, obrigado pela paciência).",
+      "Corrigido: a tela de envio podia ficar travada numa tela preta ao abrir, por causa de uma importação errada no código.",
     ],
   },
   {
@@ -98,7 +98,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     itens: [
       "Capturas agora ficam salvas no aparelho assim que confirmadas e são enviadas sozinhas quando o wifi conectar, mesmo com o app fechado.",
       "Se um erro grave acontecer, o app agora mostra uma mensagem explicando o que houve em vez de ficar com a tela travada sem explicação.",
-      "Aviso de atualização baixando/pronta para aplicar, e esta tela de novidades.",
+      "Aviso de atualização baixando/pronta para aplicar"
+      "Changelog agora mostra o que mudou em cada versão, pra todo mundo da equipe ficar sabendo das novidades.",
     ],
   },
 ];
