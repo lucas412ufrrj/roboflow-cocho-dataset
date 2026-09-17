@@ -39,6 +39,17 @@ export interface SelectedVideo {
    * backend usa o horário de recebimento do upload, como já fazia antes.
    */
   recordedAt?: number;
+  /**
+   * De onde este vídeo veio: "camera" quando gravado na hora pela câmera do
+   * próprio app (duração fixa, ver `RECORDING_DURATION_S` em `utils/video.ts`
+   * e `RecordVideoScreen.tsx`), "galeria" quando selecionado de um vídeo já
+   * existente no aparelho (duração livre entre `MIN_DURATION_S` e
+   * `MAX_DURATION_S`). Opcional só por compatibilidade com item de fila
+   * salvo por uma versão anterior do app; ausência é tratada como "galeria"
+   * em todo lugar que lê este campo, que era o único comportamento antes de
+   * ele existir.
+   */
+  origem?: "camera" | "galeria";
 }
 
 export interface FrameResult {

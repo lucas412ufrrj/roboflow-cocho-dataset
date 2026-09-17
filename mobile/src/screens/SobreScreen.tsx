@@ -29,8 +29,10 @@ function Linha({ label, valor }: { label: string; valor: string }) {
  *
  * Usa só o `expo-updates` que já estava instalado — não a versão estática do
  * `app.json` (que não muda em atualizações via `eas update`, só em builds
- * novas) nem `expo-constants` (não instalado). A "versão do changelog" serve
- * de referência prática de qual leva de mudanças está rodando.
+ * novas; ver `services/buildCheck.ts`, que usa exatamente essa versão
+ * estática via `expo-constants` pra detectar build desatualizada). A "versão
+ * do changelog" serve de referência prática de qual leva de mudanças está
+ * rodando.
  */
 export function SobreScreen() {
   const insets = useSafeAreaInsets();

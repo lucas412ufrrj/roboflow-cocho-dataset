@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
@@ -17,6 +18,7 @@ import { parsePesoInput } from "@/utils/peso";
 type Props = NativeStackScreenProps<RootStackParamList, "CaptureForm">;
 
 export function CaptureFormScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
   const [pesoKg, setPesoKg] = useState("");
   const [tipoAlimento, setTipoAlimento] = useState("");
   const [cochoId, setCochoId] = useState("");
@@ -45,7 +47,10 @@ export function CaptureFormScreen({ navigation }: Props) {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.titulo}>Dados da pesagem</Text>
         <Text style={styles.subtitulo}>
           Preencha o peso real do alimento no cocho antes de gravar o vídeo.

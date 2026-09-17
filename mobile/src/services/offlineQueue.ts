@@ -25,6 +25,16 @@ export interface QueueItem {
   mimeType: string;
   sizeBytes: number;
   durationMs: number;
+  /**
+   * Horário real de gravação (epoch ms) e origem do vídeo (câmera do app ou
+   * galeria) — ver `SelectedVideo` em `types/capture.ts`. Ausentes em item
+   * salvo por uma versão anterior do app, antes de estes campos existirem
+   * aqui (eles eram perdidos entre a Prévia e o envio: `enqueueCapture`
+   * nunca os persistia, então `recordedAt` nunca chegava no backend mesmo
+   * quando descoberto com sucesso na gravação/seleção).
+   */
+  recordedAt?: number;
+  origem?: "camera" | "galeria";
   form: CaptureFormData;
   createdAt: number;
   attempts: number;
@@ -111,6 +121,8 @@ export async function enqueueCapture(params: {
       mimeType: params.video.mimeType || "video/mp4",
       sizeBytes: params.video.sizeBytes,
       durationMs: params.video.durationMs,
+      recordedAt: params.video.recordedAt,
+      origem: params.video.origem,
       form: params.form,
       createdAt: Date.now(),
       attempts: 0,

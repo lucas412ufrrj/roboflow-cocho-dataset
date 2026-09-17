@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
@@ -13,6 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "UploadStatus">;
 type TelaFase = "verificando" | "aguardando_wifi" | "enviando" | "concluido" | "erro";
 
 export function UploadStatusScreen({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const { captureId } = route.params;
 
   const [fase, setFase] = useState<TelaFase>("verificando");
@@ -105,7 +107,7 @@ export function UploadStatusScreen({ navigation, route }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}>
       <Text style={styles.captureIdLabel}>ID da captura</Text>
       <Text style={styles.captureId}>{captureId}</Text>
 

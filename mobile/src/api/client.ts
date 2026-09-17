@@ -33,11 +33,48 @@ export class ApiError extends Error {
   }
 }
 
+export interface AppInfo {
+  app: string;
+  roboflow_workspace: string;
+  roboflow_project: string;
+  ultima_versao_nativa: string;
+}
+
+const TIMEOUT_APP_INFO_MS = 8 * 1000;
+
+/**
+ * Consulta a raiz do backend (`GET /`), que não exige autenticação — hoje
+ * usado só pra saber qual é a última versão nativa recomendada (ver
+ * `services/buildCheck.ts`). Lança `ApiError` em qualquer falha (rede,
+ * timeout, resposta inesperada) — quem chama decide o que fazer (nesse caso,
+ * simplesmente não atualizar o aviso e tentar de novo depois).
+ */
+export async function getAppInfo(): Promise<AppInfo> {
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/`,
+    { method: "GET" },
+    TIMEOUT_APP_INFO_MS,
+    "Tempo esgotado ao consultar informações do backend."
+  );
+  await lancarSeErro(response, "Falha ao consultar informações do backend.");
+  return (await response.json()) as AppInfo;
+}
+
 export interface UploadCaptureParams {
   captureId: string;
   video: SelectedVideo;
   form: CaptureFormData;
   onProgress?: (fractionCompleted: number) => void;
+  /**
+   * Chamado assim que os bytes do vídeo terminam de ser transmitidos e o app
+   * passa a esperar o servidor terminar de processar (reassemblar os blocos
+   * quando for o caso, extrair frames, validar o cocho, subir pro Roboflow).
+   * Essa fase pode demorar bem mais que o envio em si — minutos, em vídeo
+   * grande ou com o backend acordando de hibernação — sem nenhum progresso
+   * adicional pra reportar nesse meio tempo. Sem esse aviso, quem está de
+   * olho na barra de progresso vê ela parar em ~100% e parece travada.
+   */
+  onProcessingStart?: () => void;
 }
 
 function parsePesoKg(raw: string): number {
@@ -75,6 +112,7 @@ function uploadCaptureUnica({
   video,
   form,
   onProgress,
+  onProcessingStart,
 }: UploadCaptureParams): Promise<CaptureResponse> {
   return new Promise((resolve, reject) => {
     if (!API_BASE_URL) {
@@ -107,6 +145,10 @@ function uploadCaptureUnica({
     // antes desta versão ou quando nenhuma das duas fontes funcionou; o
     // backend cai de volta pro horário de recebimento do upload.
     if (video.recordedAt) formData.append("recorded_at", String(Math.round(video.recordedAt)));
+    // Sempre explícito (nunca omitido): item de fila salvo por uma versão
+    // anterior do app não tem esse campo, e "galeria" é o comportamento que
+    // já existia antes dele — ver `SelectedVideo.origem` em `types/capture.ts`.
+    formData.append("origem", video.origem ?? "galeria");
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE_URL}/api/captures`);
@@ -121,6 +163,14 @@ function uploadCaptureUnica({
         // fim. Sem o clamp, a barra de progresso passava de 100%.
         onProgress(Math.min(event.loaded / event.total, 1));
       }
+    };
+    // Dispara quando a transmissão do corpo termina, ANTES da resposta
+    // chegar — a partir daqui o app só está esperando o servidor processar
+    // o vídeo (pode levar bem mais tempo que o próprio envio, sem nenhum
+    // progresso adicional). Sem esse aviso a barra fica parada em ~100% até
+    // a resposta voltar e parece travada, mesmo com tudo correndo normal.
+    xhr.upload.onloadend = () => {
+      onProcessingStart?.();
     };
 
     xhr.onload = () => {
@@ -231,6 +281,7 @@ async function iniciarSessaoEmBlocos(params: {
   if (params.video.recordedAt) {
     formData.append("recorded_at", String(Math.round(params.video.recordedAt)));
   }
+  formData.append("origem", params.video.origem ?? "galeria");
 
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/captures/init`,
@@ -301,6 +352,7 @@ async function uploadCaptureEmBlocos({
   video,
   form,
   onProgress,
+  onProcessingStart,
 }: UploadCaptureParams): Promise<CaptureResponse> {
   if (!API_BASE_URL) {
     throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
@@ -339,5 +391,9 @@ async function uploadCaptureEmBlocos({
     onProgress?.((index + 1) / totalBlocos);
   }
 
+  // Todos os blocos chegaram — a partir daqui é o backend reassemblando e
+  // rodando o processamento pesado (mesmo pipeline do envio único), sem mais
+  // nada pra reportar como progresso até a resposta voltar.
+  onProcessingStart?.();
   return concluirSessaoEmBlocos(captureId);
 }

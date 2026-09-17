@@ -32,7 +32,12 @@ from app.models.schemas import (
     FrameResult,
     FrameStatus,
 )
-from app.services.ffmpeg_utils import normalize_to_h264_mp4, needs_normalization, probe_video
+from app.services.ffmpeg_utils import (
+    needs_normalization,
+    normalize_to_h264_mp4,
+    probe_video,
+    reencode_for_camera_origin,
+)
 from app.services.focus import compute_focus_score, is_frame_sharp
 from app.services.frame_extractor import encode_jpeg, iter_frames
 from app.services.idempotency import IdempotencyStore
@@ -249,15 +254,32 @@ class CaptureService:
             raw_local_path = await self.storage.local_path(raw_key)
 
             probe = await probe_video(raw_local_path)
-            validate_duration(probe, constraints)
+            validate_duration(probe, constraints, origem=form.origem)
             logger.info(
-                "capture %s: probe codec=%s %dx%d fps=%.1f duracao=%.1fs, pico memória: %.1fMB",
-                capture_id, probe.codec_name, probe.width, probe.height, probe.fps,
+                "capture %s: probe origem=%s codec=%s %dx%d fps=%.1f duracao=%.1fs, pico memória: %.1fMB",
+                capture_id, form.origem, probe.codec_name, probe.width, probe.height, probe.fps,
                 probe.duration_s, _peak_rss_mb(),
             )
 
             # --- 2. Normalização (se necessário) ---
-            if needs_normalization(probe, mime_type):
+            if form.origem == "camera":
+                # Vídeo de câmera SEMPRE reencoda, independente do codec de
+                # origem — ver docstring de `reencode_for_camera_origin`. Não
+                # dá pra confiar que a câmera customizada do app já entrega
+                # um arquivo em tamanho razoável, diferente da câmera nativa
+                # do sistema (usada para vídeo de galeria).
+                logger.info(
+                    "capture %s: origem=camera — reencode incondicional (resolução/bitrate)",
+                    capture_id,
+                )
+                normalized_local_path = await self.storage.local_path(normalized_key)
+                await reencode_for_camera_origin(raw_local_path, normalized_local_path)
+                processing_path = normalized_local_path
+                logger.info(
+                    "capture %s: reencode de câmera concluído, pico memória: %.1fMB",
+                    capture_id, _peak_rss_mb(),
+                )
+            elif needs_normalization(probe, mime_type):
                 logger.info(
                     "capture %s: normalização NECESSÁRIA (mime=%s codec=%s) — rodando ffmpeg",
                     capture_id, mime_type, probe.codec_name,

@@ -20,8 +20,10 @@ import { configurarNotificacoes } from "@/services/notifications";
 import { registrarSincronizacaoEmSegundoPlano } from "@/tasks/backgroundSyncTask";
 import { CHANGELOG } from "@/data/changelog";
 import { marcarVersaoComoVista, obterUltimaVersaoVista } from "@/services/changelogVisto";
+import { verificarBuildDesatualizada } from "@/services/buildCheck";
 import { ChangelogModal } from "@/components/ChangelogModal";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { OutdatedBuildBanner } from "@/components/OutdatedBuildBanner";
 
 export default function App() {
   const estadoAppAnterior = useRef<AppStateStatus>(AppState.currentState);
@@ -38,6 +40,11 @@ export default function App() {
     // necessariamente pra gravar uma nova captura).
     sincronizarFila();
 
+    // Aviso de build nativa desatualizada (ver services/buildCheck.ts) —
+    // roda nos mesmos gatilhos de `sincronizarFila` (abertura e retorno ao
+    // primeiro plano), já que os dois são checagens leves e nada bloqueantes.
+    verificarBuildDesatualizada();
+
     // Preenche qualquer captura órfã (na fila mas sem registro no Histórico)
     // logo na abertura do app, sem depender da pessoa entrar na aba
     // Histórico pra isso acontecer — ver comentário em `reconciliarComFila`.
@@ -50,6 +57,7 @@ export default function App() {
     const assinaturaEstadoApp = AppState.addEventListener("change", (proximoEstado) => {
       if (estadoAppAnterior.current.match(/inactive|background/) && proximoEstado === "active") {
         sincronizarFila();
+        verificarBuildDesatualizada();
       }
       estadoAppAnterior.current = proximoEstado;
     });
@@ -90,6 +98,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <RootNavigator />
+      <OutdatedBuildBanner />
       <UpdateBanner />
       <ChangelogModal visivel={changelogVisivel} onFechar={fecharChangelog} />
     </SafeAreaProvider>

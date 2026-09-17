@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    versao: "2026-09-17",
+    data: "17/09/2026",
+    itens: [
+      "Gravar vídeo agora usa a câmera do próprio app: aperte para gravar e ela para sozinha depois de alguns segundos, com uma vibração avisando que terminou — sem precisar controlar o tempo.",
+    ],
+  },
+  {
     versao: "2026-09-14-6",
     data: "14/09/2026",
     itens: [

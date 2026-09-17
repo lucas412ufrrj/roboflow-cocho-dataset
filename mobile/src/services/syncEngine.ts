@@ -47,11 +47,111 @@ function notificarMudanca() {
 
 let sincronizacaoDaFilaEmAndamento = false;
 const itemsEmEnvio = new Set<string>();
+const progressoPorItem = new Map<string, number>();
+// Captura cujos bytes já terminaram de subir mas cuja resposta ainda não
+// voltou — o servidor está reassemblando (envio em blocos), extraindo
+// frames, validando o cocho e subindo pro Roboflow. Isso pode levar bem mais
+// tempo que o próprio envio (minutos, em vídeo grande ou backend acordando
+// de hibernação), sem NENHUM progresso adicional pra reportar nesse meio
+// tempo. Sem essa distinção, a barra fica parada em ~100% depois de
+// terminar de enviar e parece travada, mesmo estando tudo normal.
+const itemsProcessando = new Set<string>();
+
+type OuvinteProgresso = (captureId: string, fracao: number) => void;
+const ouvintesProgresso = new Set<OuvinteProgresso>();
+
+type OuvinteProcessando = (captureId: string, processando: boolean) => void;
+const ouvintesProcessando = new Set<OuvinteProcessando>();
+
+/**
+ * Avisa a UI a cada avanço do envio de uma captura específica (0 a 1). Fica
+ * separado de `subscribeQueueChanges` de propósito: progresso dispara muitas
+ * vezes por segundo durante um envio, enquanto mudanças de status (pendente
+ * → enviando → enviado/erro) são raras — misturar os dois faria a tela de
+ * Histórico recarregar a lista inteira do disco a cada pedacinho enviado.
+ */
+export function subscribeProgress(ouvinte: OuvinteProgresso): () => void {
+  ouvintesProgresso.add(ouvinte);
+  return () => ouvintesProgresso.delete(ouvinte);
+}
+
+function notificarProgresso(captureId: string, fracao: number) {
+  ouvintesProgresso.forEach((ouvinte) => ouvinte(captureId, fracao));
+}
+
+/** Progresso (0–1) do envio em andamento desta captura, se houver algum. */
+export function obterProgresso(captureId: string): number | undefined {
+  return progressoPorItem.get(captureId);
+}
+
+/** Avisa a UI quando uma captura entra ou sai da fase "processando no
+ * servidor" (bytes já enviados, aguardando o backend terminar). */
+export function subscribeProcessando(ouvinte: OuvinteProcessando): () => void {
+  ouvintesProcessando.add(ouvinte);
+  return () => ouvintesProcessando.delete(ouvinte);
+}
+
+function notificarProcessando(captureId: string, processando: boolean) {
+  ouvintesProcessando.forEach((ouvinte) => ouvinte(captureId, processando));
+}
+
+/** true quando esta captura já terminou de subir e está esperando o
+ * servidor terminar de processar (ver comentário em `itemsProcessando`). */
+export function estaProcessando(captureId: string): boolean {
+  return itemsProcessando.has(captureId);
+}
+
+/**
+ * true quando esta captura está sendo enviada NESTE exato instante — por
+ * qualquer gatilho: automático ao conectar wifi, automático ao abrir o app,
+ * verificação periódica em segundo plano, ou um toque manual em "Sincronizar
+ * agora"/"Tentar novamente agora". É o que permite à tela de Histórico
+ * explicar por que um toque em "Sincronizar agora" às vezes não envia nada
+ * de novo: o vídeo já está a caminho por outro gatilho, não que nada esteja
+ * acontecendo.
+ */
+export function estaEnviandoAgora(captureId: string): boolean {
+  return itemsEmEnvio.has(captureId);
+}
 
 /** Wifi de verdade — dados móveis nunca contam, mesmo com boa conexão. */
 export async function temWifiConectado(): Promise<boolean> {
   const estado = await NetInfo.fetch();
   return estado.type === "wifi" && estado.isConnected === true;
+}
+
+/**
+ * Destrava itens "zumbis": capturas que ficaram gravadas com
+ * `status: "enviando"` no índice local de uma execução anterior do app que
+ * foi encerrada no meio do envio (fechada à força, apagada pelo sistema, ou
+ * substituída por uma atualização OTA enquanto o upload rodava). `enviando`
+ * SÓ é verdade de verdade enquanto o `captureId` também está em
+ * `itemsEmEnvio` — que é só memória e começa vazia a cada abertura do app.
+ * Sem essa limpeza, o item fica marcado "enviando" pra sempre: toda
+ * sincronização futura (`sincronizarFila`) vê esse status e pula o item,
+ * achando que já está em andamento em outro lugar, quando na verdade
+ * ninguém está mais cuidando dele — um impasse permanente, não uma demora.
+ *
+ * Chamada sempre no início de `sincronizarFila`, antes de qualquer outra
+ * checagem (não depende de wifi nem da trava de "já sincronizando" — é só
+ * higiene do índice local em disco).
+ */
+async function limparEnviosZumbis(): Promise<void> {
+  const fila = await listQueue();
+  let houveMudanca = false;
+  for (const item of fila) {
+    if (item.status === "enviando" && !itemsEmEnvio.has(item.captureId)) {
+      await updateQueueItem(item.captureId, {
+        status: "erro",
+        lastError: "Envio interrompido (o app foi fechado ou atualizado no meio do envio anterior). Tentando de novo.",
+      });
+      houveMudanca = true;
+    }
+  }
+  // Avisa a UI já aqui, mesmo que o resto de `sincronizarFila` termine cedo
+  // (ex.: sem wifi) — sem isso, um item destravado só apareceria atualizado
+  // na tela na próxima mudança de foco, não imediatamente.
+  if (houveMudanca) notificarMudanca();
 }
 
 async function enviarItem(
@@ -60,9 +160,20 @@ async function enviarItem(
 ): Promise<CaptureResponse | null> {
   if (itemsEmEnvio.has(item.captureId)) return null;
   itemsEmEnvio.add(item.captureId);
+  progressoPorItem.set(item.captureId, 0);
 
   await updateQueueItem(item.captureId, { status: "enviando" });
   notificarMudanca();
+
+  const reportarProgresso = (fracao: number) => {
+    progressoPorItem.set(item.captureId, fracao);
+    notificarProgresso(item.captureId, fracao);
+    onProgress?.(fracao);
+  };
+  const reportarInicioProcessamento = () => {
+    itemsProcessando.add(item.captureId);
+    notificarProcessando(item.captureId, true);
+  };
 
   try {
     const resposta = await uploadCapture({
@@ -73,9 +184,12 @@ async function enviarItem(
         sizeBytes: item.sizeBytes,
         fileName: item.fileName,
         mimeType: item.mimeType,
+        recordedAt: item.recordedAt,
+        origem: item.origem,
       },
       form: item.form,
-      onProgress,
+      onProgress: reportarProgresso,
+      onProcessingStart: reportarInicioProcessamento,
     });
     await removeFromQueue(item.captureId);
     // Mesma lógica do histórico na Prévia: exibição não pode travar o envio.
@@ -113,32 +227,88 @@ async function enviarItem(
     return null;
   } finally {
     itemsEmEnvio.delete(item.captureId);
+    progressoPorItem.delete(item.captureId);
+    if (itemsProcessando.delete(item.captureId)) {
+      notificarProcessando(item.captureId, false);
+    }
     notificarMudanca();
   }
 }
 
 /**
+ * Resultado detalhado de uma passada de sincronização — pensado pra tela de
+ * Histórico conseguir explicar de verdade por que "Sincronizar agora" às
+ * vezes não envia nada, em vez de um "Nada enviado" genérico que cobre
+ * situações bem diferentes entre si:
+ *
+ * - `jaEmAndamento`: já existe uma sincronização rodando (quase sempre um
+ *   gatilho automático — abrir o app, ou o wifi acabou de conectar). Esse é
+ *   o motivo mais comum na prática: a pessoa chega no wifi, abre o
+ *   Histórico e já toca em "Sincronizar agora" antes do envio automático,
+ *   que já começou sozinho, terminar.
+ * - `semWifi`: não achou uma rede wifi conectada no momento da checagem.
+ * - `falhas`: tentou enviar e falhou de verdade (erro do servidor, vídeo
+ *   grande demais, conexão caiu no meio) — motivo real de cada uma vem do
+ *   `lastError` que `enviarItem` grava no item da fila.
+ * - `itensJaEmEnvio`: quantos itens pendentes foram pulados nesta passada
+ *   porque já estavam sendo enviados por OUTRO gatilho específico daquele
+ *   item (ex.: "Tentar novamente agora" da tela de Envio rodando ao mesmo
+ *   tempo) — sem que a fila inteira estivesse travada (`jaEmAndamento`).
+ */
+export interface SincronizacaoResultado {
+  enviados: number;
+  totalPendentes: number;
+  jaEmAndamento: boolean;
+  semWifi: boolean;
+  itensJaEmEnvio: number;
+  falhas: Array<{ captureId: string; motivo: string }>;
+}
+
+/**
  * Percorre a fila e envia tudo que estiver pendente, um item por vez,
  * enquanto houver wifi. Usada pelos gatilhos automáticos (abrir o app,
- * wifi conectar, verificação periódica em segundo plano). Retorna quantas
- * capturas foram enviadas com sucesso nesta chamada.
+ * wifi conectar, verificação periódica em segundo plano) e pelo botão
+ * "Sincronizar agora" do Histórico.
  */
-export async function sincronizarFila(): Promise<number> {
-  if (sincronizacaoDaFilaEmAndamento) return 0;
+export async function sincronizarFila(): Promise<SincronizacaoResultado> {
+  await limparEnviosZumbis();
+  const totalPendentes = (await listQueue()).length;
+
+  if (sincronizacaoDaFilaEmAndamento) {
+    return { enviados: 0, totalPendentes, jaEmAndamento: true, semWifi: false, itensJaEmEnvio: 0, falhas: [] };
+  }
   sincronizacaoDaFilaEmAndamento = true;
   let enviados = 0;
+  let itensJaEmEnvio = 0;
+  const falhas: Array<{ captureId: string; motivo: string }> = [];
   try {
-    if (!(await temWifiConectado())) return 0;
+    if (!(await temWifiConectado())) {
+      return { enviados: 0, totalPendentes, jaEmAndamento: false, semWifi: true, itensJaEmEnvio: 0, falhas: [] };
+    }
 
     const fila = await listQueue();
     for (const item of fila) {
-      if (item.status === "enviando") continue;
+      if (item.status === "enviando" || itemsEmEnvio.has(item.captureId)) {
+        itensJaEmEnvio += 1;
+        continue;
+      }
       if (!(await temWifiConectado())) break; // perdeu wifi no meio do caminho
 
       const resposta = await enviarItem(item);
-      if (resposta) enviados += 1;
+      if (resposta) {
+        enviados += 1;
+      } else {
+        // enviarItem já engoliu o próprio erro e gravou `lastError` no item
+        // da fila (a menos que outro gatilho tenha começado a enviar este
+        // mesmo item entre o `listQueue()` acima e agora — nesse caso não há
+        // nada de novo pra reportar aqui).
+        const atual = await getQueueItem(item.captureId);
+        if (atual?.lastError) {
+          falhas.push({ captureId: item.captureId, motivo: atual.lastError });
+        }
+      }
     }
-    return enviados;
+    return { enviados, totalPendentes, jaEmAndamento: false, semWifi: false, itensJaEmEnvio, falhas };
   } finally {
     sincronizacaoDaFilaEmAndamento = false;
   }

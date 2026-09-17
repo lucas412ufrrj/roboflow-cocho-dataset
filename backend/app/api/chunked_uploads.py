@@ -61,6 +61,7 @@ async def init_chunked_upload(
     observacoes: str | None = Form(default=None),
     recorded_at: int | None = Form(default=None),
     operador: str | None = Form(default=None),
+    origem: str | None = Form(default=None),
     idempotency_store: IdempotencyStore = Depends(get_idempotency_store),
     chunked_upload_service: ChunkedUploadService = Depends(get_chunked_upload_service),
 ) -> ChunkedUploadInitResponse:
@@ -91,6 +92,7 @@ async def init_chunked_upload(
             observacoes=observacoes,
             recorded_at=recorded_at,
             operador=operador,
+            origem=origem or "galeria",
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

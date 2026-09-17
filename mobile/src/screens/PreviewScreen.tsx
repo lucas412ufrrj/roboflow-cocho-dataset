@@ -13,11 +13,20 @@ import {
 } from "react-native";
 import { useEvent } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import type { CaptureFormData } from "@/types/capture";
-import { formatDuration, formatFileSize, isDurationValid, MAX_DURATION_S, MIN_DURATION_S } from "@/utils/video";
+import {
+  formatDuration,
+  formatFileSize,
+  isDurationValid,
+  isRecordingDurationValid,
+  MAX_DURATION_S,
+  MIN_DURATION_S,
+  RECORDING_DURATION_S,
+} from "@/utils/video";
 import { generateCaptureId } from "@/utils/uuid";
 import { parsePesoInput } from "@/utils/peso";
 import { enqueueCapture } from "@/services/offlineQueue";
@@ -72,6 +81,7 @@ function LinhaRevisao({
 }
 
 export function PreviewScreen({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const { form, video } = route.params;
   const [durationMs, setDurationMs] = useState(video.durationMs);
   const [duracaoCarregada, setDuracaoCarregada] = useState(false);
@@ -102,7 +112,12 @@ export function PreviewScreen({ navigation, route }: Props) {
     }
   }, [status, duracaoCarregada, player.duration]);
 
-  const duracaoValida = duracaoCarregada && isDurationValid(durationMs);
+  // Item de fila salvo por uma versão anterior do app não tem `origem` —
+  // trata como "galeria", que era o único comportamento antes dela existir.
+  const origemVideo = video.origem ?? "galeria";
+  const duracaoValida =
+    duracaoCarregada &&
+    (origemVideo === "camera" ? isRecordingDurationValid(durationMs) : isDurationValid(durationMs));
 
   function salvarCampo(campo: CampoRevisao) {
     if (campo === "peso") {
@@ -131,10 +146,13 @@ export function PreviewScreen({ navigation, route }: Props) {
       return;
     }
     if (!duracaoValida) {
+      const mensagemFaixa =
+        origemVideo === "camera"
+          ? `O vídeo gravado precisa ter cerca de ${RECORDING_DURATION_S}s.`
+          : `O vídeo precisa ter entre ${MIN_DURATION_S} e ${MAX_DURATION_S} segundos.`;
       Alert.alert(
         "Duração inválida",
-        `O vídeo precisa ter entre ${MIN_DURATION_S} e ${MAX_DURATION_S} segundos. ` +
-          `Duração atual: ${formatDuration(durationMs)}. Grave ou selecione novamente.`
+        `${mensagemFaixa} Duração atual: ${formatDuration(durationMs)}. Grave ou selecione novamente.`
       );
       return;
     }
@@ -300,12 +318,14 @@ export function PreviewScreen({ navigation, route }: Props) {
 
           {duracaoCarregada && !duracaoValida && (
             <Text style={styles.aviso}>
-              Duração fora do intervalo de {MIN_DURATION_S}–{MAX_DURATION_S}s. Grave novamente.
+              {origemVideo === "camera"
+                ? `Duração fora do esperado para vídeo gravado (~${RECORDING_DURATION_S}s). Grave novamente.`
+                : `Duração fora do intervalo de ${MIN_DURATION_S}–${MAX_DURATION_S}s. Grave novamente.`}
             </Text>
           )}
         </ScrollView>
 
-        <View style={styles.botoesLinha}>
+        <View style={[styles.botoesLinha, { paddingBottom: insets.bottom }]}>
           <Pressable style={styles.botaoSecundario} onPress={() => navigation.goBack()} disabled={salvando}>
             <Text style={styles.botaoSecundarioTexto}>Regravar</Text>
           </Pressable>

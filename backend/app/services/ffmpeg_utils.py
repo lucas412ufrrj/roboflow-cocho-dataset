@@ -106,6 +106,69 @@ async def normalize_to_h264_mp4(src: Path, dst: Path) -> None:
         raise RuntimeError(f"ffmpeg (normalização) falhou: {stderr.decode(errors='ignore')}")
 
 
+async def reencode_for_camera_origin(
+    src: Path,
+    dst: Path,
+    *,
+    max_width: int = 1280,
+    max_height: int = 720,
+    video_bitrate: str = "2M",
+) -> None:
+    """Reencoda e limita resolução/bitrate INCONDICIONALMENTE — diferente de
+    `normalize_to_h264_mp4` acima, que só reencoda quando o codec não é
+    h264/avc1.
+
+    Usada só para vídeo com origem="camera" (gravado pela câmera customizada
+    do app, `CameraView` em `RecordVideoScreen.tsx`). Não confiamos nas
+    opções de qualidade dessa câmera pra garantir um arquivo de tamanho
+    razoável: a câmera nativa do sistema (usada antes, e ainda usada para
+    vídeo de galeria) tinha esse controle confiável, mas o `CameraView` já
+    demonstrou no passado ignorar `videoQuality`/`videoBitrate` no iOS e
+    devolver o vídeo em resolução nativa da câmera (60MB+, estourando o
+    timeout de upload). Fazendo esse corte aqui, sempre, o resultado final
+    não depende mais de nenhuma configuração de câmera do aparelho — vale
+    pra qualquer celular, mesmo que a gravação em si saia gigante.
+
+    Como a origem="camera" sempre produz um vídeo curto e de duração fixa
+    (~`RECORDING_DURATION_S`, ver `config.py`), o custo extra de reencodar
+    sempre (em vez de só quando o codec pede) é pequeno e previsível.
+    """
+    _ensure_binaries()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    escala = f"scale='min({max_width},iw)':'min({max_height},ih)':force_original_aspect_ratio=decrease"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(src),
+        "-vf",
+        escala,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-b:v",
+        video_bitrate,
+        "-maxrate",
+        video_bitrate,
+        "-bufsize",
+        "4M",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        str(dst),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg (reencode câmera) falhou: {stderr.decode(errors='ignore')}")
+
+
 def needs_normalization(probe: VideoProbeInfo, mime_type: str) -> bool:
     """Só precisa reencodar se o codec de vídeo não for H.264/avc1.
 

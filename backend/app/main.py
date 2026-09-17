@@ -72,4 +72,8 @@ async def root() -> dict:
         "app": settings.APP_NAME,
         "roboflow_workspace": settings.ROBOFLOW_WORKSPACE,
         "roboflow_project": settings.ROBOFLOW_PROJECT,
+        # Consultado pelo app móvel na abertura pra avisar quem ainda está
+        # numa build nativa mais antiga (ver `ULTIMA_VERSAO_NATIVA` em
+        # `app/config.py` e `mobile/src/services/buildCheck.ts`).
+        "ultima_versao_nativa": settings.ULTIMA_VERSAO_NATIVA,
     }

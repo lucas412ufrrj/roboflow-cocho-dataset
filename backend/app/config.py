@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "staging", "production", "test"] = "development"
     LOG_LEVEL: str = "INFO"
 
+    # Versão nativa (campo "version" do app.json do app móvel) mais recente
+    # que exige uma build/instalação nova — não uma atualização OTA (`eas
+    # update`), que já chega sozinha. Atualize este valor manualmente TODA
+    # VEZ que gerar uma build nova com `eas build` (ao mesmo tempo em que
+    # bumpar o "version" do app.json). O app compara isso com a própria
+    # versão instalada (`Application.nativeApplicationVersion`) na abertura
+    # e mostra um aviso pra quem ainda estiver numa build mais antiga — ver
+    # `mobile/src/services/buildCheck.ts`.
+    ULTIMA_VERSAO_NATIVA: str = "1.0.0"
+
     # --- Autenticação do app móvel no NOSSO backend (nunca no Roboflow) ---
     BACKEND_API_KEY: str = Field(
         default="change-me-backend-api-key",
@@ -39,8 +49,17 @@ class Settings(BaseSettings):
 
     # --- Upload / vídeo ---
     MAX_VIDEO_SIZE_MB: float = 150.0
+    # Vídeo selecionado da galeria (origem="galeria"): intervalo livre, como sempre foi.
     MIN_VIDEO_DURATION_S: float = 7.0
     MAX_VIDEO_DURATION_S: float = 10.0
+    # Vídeo gravado na hora pela câmera do app (origem="camera", ver
+    # `mobile/src/screens/RecordVideoScreen.tsx"): duração fixa, decidida pelo
+    # app, não pela pessoa gravando. TEM que bater com `RECORDING_DURATION_S`
+    # e `RECORDING_TOLERANCE_S` em `mobile/src/utils/video.ts` — os dois lados
+    # validam a mesma regra de forma independente, não há um valor só
+    # compartilhado entre app e backend.
+    RECORDING_DURATION_S: float = 8.5
+    RECORDING_DURATION_TOLERANCE_S: float = 0.3
     ALLOWED_VIDEO_MIME_TYPES: tuple[str, ...] = (
         "video/mp4",
         "video/quicktime",  # .mov gravado no iOS, será normalizado

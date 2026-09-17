@@ -44,6 +44,17 @@ class CaptureFormInput(BaseModel):
             "funcionou — nesses casos o horário de recebimento do upload é o que fica."
         ),
     )
+    origem: Literal["camera", "galeria"] = Field(
+        default="galeria",
+        description=(
+            "De onde o vídeo veio: 'camera' quando gravado na hora pela câmera do "
+            "próprio app (duração fixa, ver RECORDING_DURATION_S em config.py), "
+            "'galeria' quando selecionado de um vídeo já existente no aparelho "
+            "(duração livre, MIN/MAX_VIDEO_DURATION_S). Default 'galeria' por "
+            "compatibilidade com versão do app anterior a este campo existir, que "
+            "só tinha esse caminho."
+        ),
+    )
 
     @field_validator("recorded_at")
     @classmethod

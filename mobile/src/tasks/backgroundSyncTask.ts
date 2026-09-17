@@ -35,8 +35,8 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     // terminar — `configurarNotificacoes` é idempotente, então repetir essa
     // chamada quando o app está aberto não tem custo.
     configurarNotificacoes();
-    const enviados = await sincronizarFila();
-    return enviados > 0
+    const resultado = await sincronizarFila();
+    return resultado.enviados > 0
       ? BackgroundFetch.BackgroundFetchResult.NewData
       : BackgroundFetch.BackgroundFetchResult.NoData;
   } catch (error) {

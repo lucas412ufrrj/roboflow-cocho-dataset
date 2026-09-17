@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api", tags=["captures"])
 @limiter.limit(lambda: get_settings().RATE_LIMIT_CAPTURES)
 async def create_capture(
     request: Request,  # exigido pelo slowapi para extrair o IP do cliente
-    video: UploadFile = File(..., description="Arquivo de vídeo MP4 (7 a 10s)."),
+    video: UploadFile = File(..., description="Vídeo gravado (~8.5s) ou selecionado da galeria (7 a 10s)."),
     peso_kg: float = Form(...),
     tipo_alimento: str | None = Form(default=None),
     cocho_id: str | None = Form(default=None),
@@ -55,6 +55,10 @@ async def create_capture(
     operador: str | None = Form(
         default=None,
         description="Nome de quem gravou, quando configurado no aparelho.",
+    ),
+    origem: str | None = Form(
+        default=None,
+        description="'camera' (gravado na hora) ou 'galeria'. Ausente em app antigo, tratado como 'galeria'.",
     ),
     capture_service: CaptureService = Depends(get_capture_service),
 ) -> CaptureResponse:
@@ -72,6 +76,7 @@ async def create_capture(
             observacoes=observacoes,
             recorded_at=recorded_at,
             operador=operador,
+            origem=origem or "galeria",
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
