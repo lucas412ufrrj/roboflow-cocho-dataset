@@ -7,7 +7,11 @@ from functools import lru_cache
 from app.config import get_settings
 from app.services.capture_service import CaptureService
 from app.services.chunked_upload_service import ChunkedUploadService
-from app.services.cocho_registry import CochoRegistry, FileCochoRegistry
+from app.services.cocho_registry import (
+    CochoRegistry,
+    FileCochoRegistry,
+    GitHubCochoRegistry,
+)
 from app.services.idempotency import FileIdempotencyStore, IdempotencyStore
 from app.services.roboflow_client import RoboflowClient
 from app.services.trough_validator import get_trough_validator
@@ -16,15 +20,31 @@ from app.storage.factory import get_storage_backend
 
 @lru_cache
 def get_idempotency_store() -> IdempotencyStore:
+    # PERSISTENT_DATA_PATH (não LOCAL_STORAGE_PATH, que é só scratch de vídeo
+    # em processamento, apagado a cada deploy no Render) — ver comentário em
+    # `config.Settings.PERSISTENT_DATA_PATH`.
     settings = get_settings()
-    path = f"{settings.LOCAL_STORAGE_PATH}/_idempotency.json"
+    path = f"{settings.PERSISTENT_DATA_PATH}/_idempotency.json"
     return FileIdempotencyStore(path)
 
 
 @lru_cache
 def get_cocho_registry() -> CochoRegistry:
+    # COCHO_REGISTRY_BACKEND=github evita depender de PERSISTENT_DATA_PATH
+    # apontar pra um Persistent Disk pago do Render — ver comentário em
+    # `config.Settings.COCHO_REGISTRY_BACKEND` e decisão registrada no
+    # projeto Claude (2026-09-19). `FileIdempotencyStore` continua em
+    # PERSISTENT_DATA_PATH de propósito — não sofreu o mesmo incidente e o
+    # impacto de resetar é bem menor.
     settings = get_settings()
-    path = f"{settings.LOCAL_STORAGE_PATH}/_cochos.json"
+    if settings.COCHO_REGISTRY_BACKEND == "github":
+        return GitHubCochoRegistry(
+            token=settings.GITHUB_TOKEN,
+            repo=settings.GITHUB_REPO,
+            path=settings.GITHUB_COCHOS_PATH,
+            branch=settings.GITHUB_BRANCH,
+        )
+    path = f"{settings.PERSISTENT_DATA_PATH}/_cochos.json"
     return FileCochoRegistry(path)
 
 

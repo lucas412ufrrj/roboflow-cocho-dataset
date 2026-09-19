@@ -228,8 +228,22 @@ export function RecordVideoScreen({ navigation, route }: Props) {
    * exatamente com a proporção física — tratar como ponto de partida
    * razoável, ajustado depois com um teste real, não como matemática
    * exata.
+   *
+   * Bug corrigido em 2026-09-19: o cocho real é bem mais comprido que
+   * largo (ex.: ~200 x 32cm, proporção ~6:1) — com a largura da marcação
+   * limitada a 82% da tela, a altura resultante (largura / proporção)
+   * ficava menor que a altura dos próprios cantos em L (`TAMANHO_CANTO_GUIA`),
+   * fazendo o canto de cima e o de baixo colidirem/sobreporem: na tela
+   * aparecia só um retângulo pequeno e achatado, colado perto do topo do
+   * contorno (onde os cantos de cima ficam) em vez das quatro pontas
+   * abertas e visíveis. `ALTURA_MINIMA_GUIA` garante espaço suficiente
+   * pros quatro cantos aparecerem separados, mesmo abrindo mão de refletir
+   * a proporção exata nesse caso extremo. `Number.isFinite` cobre o caso
+   * (mais raro) de um cocho cadastrado com comprimento inválido.
    */
-  const proporcaoCocho = form.cocho.larguraCm > 0 ? form.cocho.comprimentoCm / form.cocho.larguraCm : 3;
+  const ALTURA_MINIMA_GUIA = TAMANHO_CANTO_GUIA * 3.2;
+  const proporcaoCochoBruta = form.cocho.larguraCm > 0 ? form.cocho.comprimentoCm / form.cocho.larguraCm : 3;
+  const proporcaoCocho = Number.isFinite(proporcaoCochoBruta) && proporcaoCochoBruta > 0 ? proporcaoCochoBruta : 3;
   const larguraMaximaGuia = larguraTela * 0.82;
   const alturaMaximaGuia = alturaTela * 0.5;
   let larguraGuia = larguraMaximaGuia;
@@ -237,6 +251,8 @@ export function RecordVideoScreen({ navigation, route }: Props) {
   if (alturaGuia > alturaMaximaGuia) {
     alturaGuia = alturaMaximaGuia;
     larguraGuia = alturaGuia * proporcaoCocho;
+  } else if (alturaGuia < Math.min(ALTURA_MINIMA_GUIA, alturaMaximaGuia)) {
+    alturaGuia = Math.min(ALTURA_MINIMA_GUIA, alturaMaximaGuia);
   }
 
   if (modo === "camera") {

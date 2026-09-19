@@ -94,7 +94,13 @@ class Settings(BaseSettings):
     FRAMES_PER_SECOND: float = 3.0
     FOCUS_SCORE_THRESHOLD: float = 100.0  # variância do Laplaciano
 
-    # --- Armazenamento temporário ---
+    # --- Armazenamento temporário (vídeo em processamento) ---
+    # De propósito EFÊMERO: cada arquivo aqui é apagado por `_cleanup` no fim
+    # do processamento da própria captura (ver `capture_service.py`). No
+    # Render, este caminho vive no disco do container e é apagado a cada
+    # deploy/restart — o que é exatamente certo pra este uso, mas SERIA
+    # ERRADO pra dado que precisa sobreviver a um deploy (ver
+    # PERSISTENT_DATA_PATH abaixo, que é o caso oposto).
     STORAGE_BACKEND: Literal["local", "s3"] = "local"
     LOCAL_STORAGE_PATH: str = "./tmp_storage"
 
@@ -104,6 +110,44 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str | None = None
     AWS_ACCESS_KEY_ID: str | None = None
     AWS_SECRET_ACCESS_KEY: str | None = None
+
+    # --- Armazenamento DURÁVEL (registro de cochos, idempotência) ---
+    # Ao contrário de LOCAL_STORAGE_PATH acima, isto precisa sobreviver a um
+    # deploy/restart do backend — é onde `FileCochoRegistry`
+    # (`services/cocho_registry.py`) e `FileIdempotencyStore`
+    # (`services/idempotency.py`) gravam. Rodando local (`./persistent_data`
+    # já basta, o disco da própria máquina já é durável). No Render, um
+    # caminho comum a um container recém-criado a cada deploy NÃO sobrevive
+    # sozinho — é preciso adicionar um Persistent Disk ao serviço
+    # (Render -> serviço -> Disks -> Add Disk, escolher um mount path, ex.:
+    # `/var/data`) e então configurar esta variável de ambiente com esse
+    # MESMO mount path. Sem isso, cada deploy reseta o registro de cochos
+    # para vazio (foi o que apagou um cocho recém-cadastrado após um deploy
+    # em 2026-09-19 — ver decisão registrada no projeto Claude).
+    PERSISTENT_DATA_PATH: str = "./persistent_data"
+
+    # --- Backend do registro de cochos ---
+    # file: grava em PERSISTENT_DATA_PATH acima — só é de fato durável se
+    # esse caminho estiver num Persistent Disk de verdade (pago no Render).
+    # github: grava um JSON dentro do próprio repositório git via API REST
+    # do GitHub (Contents API) — alternativa gratuita, nunca expira/pausa
+    # (ao contrário de bancos free-tier como MongoDB Atlas M0 ou Upstash),
+    # escolhida em 2026-09-19 pra resolver o mesmo problema sem custo. Ver
+    # `services/cocho_registry.GitHubCochoRegistry` e decisão registrada no
+    # projeto Claude. Não muda nada em `idempotency.py` (continua em
+    # PERSISTENT_DATA_PATH) — a idempotência de upload não sofreu o mesmo
+    # incidente e tem impacto bem menor se resetar.
+    COCHO_REGISTRY_BACKEND: Literal["file", "github"] = "file"
+
+    # Preencha somente se COCHO_REGISTRY_BACKEND=github.
+    # Token de acesso pessoal (fine-grained) do GitHub, com permissão
+    # "Contents: Read and write" restrita a este único repositório. NUNCA
+    # exponha isso em log, resposta de API ou para o app móvel.
+    GITHUB_TOKEN: str = ""
+    # Formato "usuario/repositorio", ex.: "lucasdagui413/roboflow-cocho-dataset".
+    GITHUB_REPO: str = ""
+    GITHUB_COCHOS_PATH: str = "backend/_data/cochos.json"
+    GITHUB_BRANCH: str = "main"
 
     # --- Roboflow (workspace/projeto NÃO são segredos, a chave é) ---
     ROBOFLOW_API_KEY: str = Field(
