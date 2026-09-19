@@ -136,6 +136,23 @@ class Settings(BaseSettings):
     ROBOFLOW_TROUGH_API_KEY: str = ""
     ROBOFLOW_TROUGH_CONFIDENCE_THRESHOLD: float = 0.5
 
+    # --- Modelo 1: reenvio de frames "cocho incompleto" como dado bruto ---
+    # Frames reprovados por TroughValidator (acima) hoje eram só descartados.
+    # Com isso ligado, cada captura manda até
+    # ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA desses frames — SEM anotação —
+    # pro dataset do próprio Modelo 1 (ROBOFLOW_TROUGH_UPLOAD_PROJECT),
+    # fechando o ciclo entre captura real de campo e os lotes de reanotação
+    # manual que o Lucas já faz a cada cocho novo (ver decisão registrada no
+    # projeto Claude em 19/09/2026). Usa a mesma chave de
+    # ROBOFLOW_TROUGH_API_KEY (fallback ROBOFLOW_API_KEY) já usada acima para
+    # inferência — mas upload de dataset exige permissão de ESCRITA nesse
+    # projeto, que pode não vir junto com uma chave só de leitura/inferência.
+    # Por isso desligado por padrão: só ligar depois de confirmar que a chave
+    # configurada tem essa permissão em `reconhecimento-de-cocho`.
+    ENVIAR_COCHO_INCOMPLETO_MODELO_1: bool = False
+    ROBOFLOW_TROUGH_UPLOAD_PROJECT: str = "reconhecimento-de-cocho"
+    ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA: int = 3
+
     @field_validator("ROBOFLOW_API_KEY")
     @classmethod
     def _warn_empty_key_in_prod(cls, v: str, info) -> str:

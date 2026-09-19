@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from pathlib import Path
+
+import numpy as np
 
 try:
     import resource  # POSIX apenas (Linux/Render) — não existe no Windows.
@@ -55,6 +58,18 @@ from app.services.video_validation import (
 from app.storage.base import AsyncReadable, StorageBackend
 
 logger = logging.getLogger(__name__)
+
+
+def _slug_motivo_incompleto(motivo: str) -> str:
+    """Reduz um `motivo` de `TroughValidationResult` (ex.:
+    "apenas_1_extremidade(s)_acima_do_limiar (roboflow, 2 detectada(s) no
+    total)") a uma tag curta pro Roboflow (ex.: "apenas-1-extremidade-s-
+    acima-do-limiar"), descartando o detalhe entre parênteses. Só afeta a
+    tag usada no envio ao Modelo 1 (ver `_enviar_frame_incompleto_modelo1`);
+    o `motivo` completo continua indo no `FrameResult` devolvido ao app."""
+    base = motivo.split(" (", 1)[0].strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+    return slug or "cocho-incompleto"
 
 
 def _peak_rss_mb() -> float:
@@ -308,6 +323,12 @@ class CaptureService:
             frame_results: list[FrameResult] = []
             aprovados = desfocados = cocho_incompleto = falhas_upload = 0
             total_candidatos = 0
+            # Conta só os frames de "cocho incompleto" já enviados ao Modelo
+            # 1 nesta captura, pra respeitar o teto configurado (ver
+            # `_enviar_frame_incompleto_modelo1`) — vídeos com desenquadre
+            # prolongado geram vários frames incompletos quase idênticos, e
+            # não queremos inundar o dataset do Modelo 1 com duplicata.
+            frames_incompletos_enviados_modelo1 = 0
 
             async for frame in iter_frames(processing_path, self.settings.FRAMES_PER_SECOND):
                 total_candidatos += 1
@@ -344,6 +365,7 @@ class CaptureService:
                 trough_result = await self.trough_validator.validate(frame.frame_bgr)
                 if not trough_result.cocho_completo:
                     cocho_incompleto += 1
+                    motivo = trough_result.motivo or "cocho incompleto"
                     frame_results.append(
                         FrameResult(
                             frame_index=frame.index,
@@ -351,9 +373,23 @@ class CaptureService:
                             focus_score=focus_score,
                             cocho_completo=False,
                             status=FrameStatus.rejeitado_cocho_incompleto,
-                            motivo_rejeicao=trough_result.motivo or "cocho incompleto",
+                            motivo_rejeicao=motivo,
                         )
                     )
+                    if (
+                        self.settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1
+                        and frames_incompletos_enviados_modelo1
+                        < self.settings.ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA
+                    ):
+                        frames_incompletos_enviados_modelo1 += 1
+                        await self._enviar_frame_incompleto_modelo1(
+                            frame_bgr=frame.frame_bgr,
+                            video_id=video_id,
+                            frame_index=frame.index,
+                            capture_id=capture_id,
+                            motivo=motivo,
+                            cocho_experimento=form.cocho_experimento,
+                        )
                     continue
 
                 # Escala (cm por pixel) e área do próprio cocho, calculadas a
@@ -458,6 +494,66 @@ class CaptureService:
             logger.info(
                 "capture %s: memória devolvida ao SO: %.1fMB -> %.1fMB (liberados %.1fMB)",
                 capture_id, rss_antes, rss_depois, rss_antes - rss_depois,
+            )
+
+    async def _enviar_frame_incompleto_modelo1(
+        self,
+        *,
+        frame_bgr: np.ndarray,
+        video_id: str,
+        frame_index: int,
+        capture_id: str,
+        motivo: str,
+        cocho_experimento: str,
+    ) -> None:
+        """Envia, em melhor esforço, um frame reprovado por "cocho
+        incompleto" ao dataset do Modelo 1 (`ROBOFLOW_TROUGH_UPLOAD_PROJECT`
+        — ver `RoboflowClient.upload_frame_to_project` e a decisão em
+        `config.Settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1`). A imagem sobe
+        SEM anotação, pra entrar num lote de reanotação manual futuro.
+
+        Nunca propaga exceção: uma falha aqui (rede, chave sem permissão de
+        escrita nesse projeto, etc.) é só logada como aviso — não pode
+        derrubar nem marcar como falha a captura principal, que é sobre
+        peso, não sobre isso.
+        """
+        api_key = self.settings.ROBOFLOW_TROUGH_API_KEY or self.settings.ROBOFLOW_API_KEY
+        project = self.settings.ROBOFLOW_TROUGH_UPLOAD_PROJECT
+        if not api_key or not project:
+            logger.warning(
+                "capture %s: ENVIAR_COCHO_INCOMPLETO_MODELO_1 ligado mas falta "
+                "ROBOFLOW_TROUGH_API_KEY/ROBOFLOW_API_KEY ou ROBOFLOW_TROUGH_UPLOAD_PROJECT "
+                "— pulando envio do frame incompleto ao Modelo 1.",
+                capture_id,
+            )
+            return
+
+        try:
+            image_bytes = await asyncio.to_thread(encode_jpeg, frame_bgr)
+            filename = f"{video_id}_{frame_index:03d}_incompleto.jpg"
+            tags = ["cocho-incompleto", _slug_motivo_incompleto(motivo)]
+            if cocho_experimento:
+                tags.append(f"experimento-{cocho_experimento}")
+
+            await self.roboflow_client.upload_frame_to_project(
+                image_bytes=image_bytes,
+                filename=filename,
+                capture_id=capture_id,
+                project=project,
+                api_key=api_key,
+                tags=tags,
+            )
+        except RoboflowUploadError as exc:
+            logger.warning(
+                "capture %s: falha ao enviar frame incompleto ao Modelo 1 "
+                "(melhor esforço, não afeta a captura principal): %s",
+                capture_id, exc,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "capture %s: erro inesperado ao enviar frame incompleto ao Modelo 1 "
+                "(melhor esforço, não afeta a captura principal)",
+                capture_id, exc_info=True,
             )
 
     async def _cleanup(self, *keys: str) -> None:

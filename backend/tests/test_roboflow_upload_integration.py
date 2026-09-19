@@ -142,3 +142,53 @@ async def test_upload_frame_sem_api_key_falha_imediatamente(settings):
             metadata=_metadata(),
         )
     await client.aclose()
+
+
+@respx.mock
+async def test_upload_frame_to_project_envia_ao_projeto_e_chave_informados(settings):
+    # Projeto/chave diferentes dos padrões do dataset de peso — é assim que
+    # `capture_service.py` usa isso pra reenviar frame de "cocho incompleto"
+    # ao dataset do Modelo 1, num workspace potencialmente diferente.
+    upload_url = f"{settings.ROBOFLOW_UPLOAD_BASE_URL}/dataset/reconhecimento-de-cocho/upload"
+    route = respx.post(upload_url).mock(
+        return_value=httpx.Response(200, json={"id": "img-modelo1-1"})
+    )
+
+    client = RoboflowClient(settings=settings)
+    result = await client.upload_frame_to_project(
+        image_bytes=b"fake-jpeg-bytes",
+        filename="video-1_000_incompleto.jpg",
+        capture_id="capture-xyz",
+        project="reconhecimento-de-cocho",
+        api_key="chave-workspace-modelo1",
+        tags=["cocho-incompleto", "cocho-nao-detectado", "experimento-2026"],
+    )
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.url.params["batch_name"] == "capture-xyz"
+    assert request.url.params["api_key"] == "chave-workspace-modelo1"
+    tags = request.url.params.get_list("tag")
+    assert "cocho-incompleto" in tags
+    assert "cocho-nao-detectado" in tags
+    assert "experimento-2026" in tags
+    # Esse dataset não usa o schema de FrameMetadata — não deve ir "metadata" nenhum.
+    assert b"name=\"metadata\"" not in request.content
+
+    assert result.image_id == "img-modelo1-1"
+    await client.aclose()
+
+
+async def test_upload_frame_to_project_sem_api_key_falha_imediatamente(settings):
+    client = RoboflowClient(settings=settings)
+
+    with pytest.raises(RoboflowUploadError):
+        await client.upload_frame_to_project(
+            image_bytes=b"fake",
+            filename="f.jpg",
+            capture_id="capture-sem-chave",
+            project="reconhecimento-de-cocho",
+            api_key="",
+            tags=["cocho-incompleto"],
+        )
+    await client.aclose()

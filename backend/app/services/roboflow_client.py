@@ -1,7 +1,7 @@
 """
-Cliente para o endpoint de upload de imagens do dataset Roboflow.
+Cliente para o endpoint de upload de imagens de dataset do Roboflow.
 
-Regras seguidas aqui (ver especificação do projeto):
+`upload_frame` é o caminho principal — dataset de peso (`ROBOFLOW_PROJECT`):
 - Cada frame aprovado é enviado via multipart/form-data.
 - O `capture_id` do vídeo é usado como `batch_name` no Roboflow.
 - Tags: "mobile-capture", "frame-valid", se houver o tipo de alimento, e
@@ -13,6 +13,13 @@ Regras seguidas aqui (ver especificação do projeto):
 - Idempotência: reenviar o mesmo (capture_id, frame_index) não duplica a
   imagem no Roboflow (ver `IdempotencyStore` em `capture_service.py`).
 - `ROBOFLOW_API_KEY` nunca é logada.
+
+`upload_frame_to_project` é um caminho secundário, genérico, que reaproveita
+a mesma lógica de upload/retry pra mandar imagem a QUALQUER projeto/chave
+Roboflow — usado por `capture_service.py` para reenviar frames de "cocho
+incompleto" ao dataset do Modelo 1 (ver `Settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1`
+em `config.py`), sem o schema de `FrameMetadata` (que é específico do
+Modelo 2/peso).
 """
 
 from __future__ import annotations
@@ -87,7 +94,7 @@ class RoboflowClient:
         metadata: FrameMetadata,
     ) -> RoboflowUploadResult:
         """
-        Envia um frame aprovado ao endpoint de upload de imagens do Roboflow.
+        Envia um frame aprovado ao dataset de peso (`ROBOFLOW_PROJECT`).
 
         Levanta `RoboflowUploadError` se todas as tentativas falharem.
         """
@@ -96,16 +103,82 @@ class RoboflowClient:
                 "ROBOFLOW_API_KEY não configurada no backend — upload abortado."
             )
 
+        tags = self._build_tags(metadata.tipo_alimento, metadata.cocho_experimento)
+        return await self._upload_ou_relanca(
+            image_bytes=image_bytes,
+            filename=filename,
+            capture_id=capture_id,
+            project=self.settings.ROBOFLOW_PROJECT,
+            api_key=self.settings.ROBOFLOW_API_KEY,
+            tags=tags,
+            metadata_json=metadata.model_dump_json(),
+        )
+
+    async def upload_frame_to_project(
+        self,
+        *,
+        image_bytes: bytes,
+        filename: str,
+        capture_id: str,
+        project: str,
+        api_key: str,
+        tags: list[str],
+    ) -> RoboflowUploadResult:
+        """
+        Envia uma imagem a um projeto/dataset Roboflow arbitrário — usado
+        hoje só para mandar frames reprovados por "cocho incompleto" ao
+        dataset do Modelo 1 (`reconhecimento-de-cocho`), que pode viver num
+        workspace/chave diferente do dataset de peso usado por
+        `upload_frame` acima. Sem `metadata` (esse dataset não tem o schema
+        de `FrameMetadata` — é imagem crua esperando anotação manual). Mesma
+        lógica de retry/erro de `upload_frame`.
+
+        Levanta `RoboflowUploadError` se todas as tentativas falharem ou se
+        `api_key` vier vazia.
+        """
+        if not api_key:
+            raise RoboflowUploadError(
+                f"Nenhuma chave configurada para upload no projeto '{project}'."
+            )
+        return await self._upload_ou_relanca(
+            image_bytes=image_bytes,
+            filename=filename,
+            capture_id=capture_id,
+            project=project,
+            api_key=api_key,
+            tags=tags,
+            metadata_json=None,
+        )
+
+    async def _upload_ou_relanca(
+        self,
+        *,
+        image_bytes: bytes,
+        filename: str,
+        capture_id: str,
+        project: str,
+        api_key: str,
+        tags: list[str],
+        metadata_json: str | None,
+    ) -> RoboflowUploadResult:
+        """Roda `_upload_with_retry` e converte um erro transitório esgotado
+        em `RoboflowUploadError` (definitivo) — comum a `upload_frame` e
+        `upload_frame_to_project`."""
         try:
             return await self._upload_with_retry(
                 image_bytes=image_bytes,
                 filename=filename,
                 capture_id=capture_id,
-                metadata=metadata,
+                project=project,
+                api_key=api_key,
+                tags=tags,
+                metadata_json=metadata_json,
             )
         except RoboflowRetryableError as exc:
-            safe_msg = redact(str(exc), self.settings.ROBOFLOW_API_KEY)
-            logger.error("Upload ao Roboflow esgotou tentativas: %s", safe_msg)
+            safe_msg = redact(str(exc), api_key)
+            logger.error(
+                "Upload ao Roboflow (projeto %s) esgotou tentativas: %s", project, safe_msg
+            )
             raise RoboflowUploadError(safe_msg) from exc
 
     async def _upload_with_retry(
@@ -114,7 +187,10 @@ class RoboflowClient:
         image_bytes: bytes,
         filename: str,
         capture_id: str,
-        metadata: FrameMetadata,
+        project: str,
+        api_key: str,
+        tags: list[str],
+        metadata_json: str | None,
     ) -> RoboflowUploadResult:
         retryer = retry(
             reraise=True,
@@ -126,7 +202,10 @@ class RoboflowClient:
             image_bytes=image_bytes,
             filename=filename,
             capture_id=capture_id,
-            metadata=metadata,
+            project=project,
+            api_key=api_key,
+            tags=tags,
+            metadata_json=metadata_json,
         )
 
     async def _do_upload(
@@ -135,13 +214,15 @@ class RoboflowClient:
         image_bytes: bytes,
         filename: str,
         capture_id: str,
-        metadata: FrameMetadata,
+        project: str,
+        api_key: str,
+        tags: list[str],
+        metadata_json: str | None,
     ) -> RoboflowUploadResult:
-        url = f"{self.settings.ROBOFLOW_UPLOAD_BASE_URL}/dataset/{self.settings.ROBOFLOW_PROJECT}/upload"
+        url = f"{self.settings.ROBOFLOW_UPLOAD_BASE_URL}/dataset/{project}/upload"
 
-        tags = self._build_tags(metadata.tipo_alimento, metadata.cocho_experimento)
         query_params: list[tuple[str, str]] = [
-            ("api_key", self.settings.ROBOFLOW_API_KEY),
+            ("api_key", api_key),
             ("batch_name", capture_id),
         ]
         query_params += [("tag", t) for t in tags]
@@ -149,10 +230,9 @@ class RoboflowClient:
         files = {
             "file": (filename, image_bytes, "image/jpeg"),
         }
-        data = {
-            "name": filename,
-            "metadata": metadata.model_dump_json(),
-        }
+        data = {"name": filename}
+        if metadata_json is not None:
+            data["metadata"] = metadata_json
 
         client = await self._get_client()
         try:
@@ -165,7 +245,7 @@ class RoboflowClient:
                 f"Roboflow retornou status transitório {response.status_code}."
             )
         if response.status_code >= 400:
-            safe_msg = redact(response.text, self.settings.ROBOFLOW_API_KEY)
+            safe_msg = redact(response.text, api_key)
             raise RoboflowUploadError(
                 f"Roboflow rejeitou o upload (status {response.status_code}): {safe_msg}"
             )
