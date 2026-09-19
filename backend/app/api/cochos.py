@@ -65,6 +65,7 @@ async def listar_cochos(
 @router.delete(
     "/{cocho_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     dependencies=[Depends(verify_admin_api_key)],
 )
 async def excluir_cocho(
