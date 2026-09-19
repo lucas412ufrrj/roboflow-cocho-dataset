@@ -67,7 +67,9 @@ async def test_mesmo_capture_id_nao_reenvia_frames_ao_roboflow(settings, tmp_pat
 
     form = CaptureFormInput(
         peso_kg=15.0,
-        tipo_alimento="Silagem",
+        tipo_alimento_id="tipo-01",
+        tipo_alimento_nome="Silagem",
+        tipo_alimento_densidade_aparente_kg_l=0.6,
         cocho_id="cocho-01",
         cocho_nome="Cocho de teste",
         cocho_comprimento_cm=200.0,
@@ -114,6 +116,9 @@ async def test_capture_ids_diferentes_geram_video_ids_diferentes(settings, tmp_p
 
     form = CaptureFormInput(
         peso_kg=8.0,
+        tipo_alimento_id="tipo-01",
+        tipo_alimento_nome="Silagem",
+        tipo_alimento_densidade_aparente_kg_l=0.6,
         cocho_id="cocho-01",
         cocho_nome="Cocho de teste",
         cocho_comprimento_cm=200.0,

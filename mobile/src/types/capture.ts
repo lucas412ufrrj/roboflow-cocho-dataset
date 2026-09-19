@@ -37,9 +37,26 @@ export interface Cocho {
   experimento: string;
 }
 
+/**
+ * Tipo de alimento cadastrado no aparelho (ver
+ * `services/tipoAlimentoStorage.ts` e `screens/TiposAlimentoScreen.tsx`) —
+ * selecionado obrigatoriamente após o cocho, antes de gravar. Mesmo padrão
+ * de `Cocho` acima: `id` gerado no aparelho, nunca digitado pela pessoa.
+ */
+export interface TipoAlimento {
+  id: string;
+  nome: string;
+  /**
+   * Densidade aparente do alimento, em Kg/L — obtida enchendo um frasco de
+   * volume conhecido e pesando (ver texto de ajuda em
+   * `TiposAlimentoScreen.tsx`). Embutida no snapshot de cada captura do
+   * mesmo jeito que as medidas do cocho.
+   */
+  densidadeAparenteKgL: number;
+}
+
 export interface CaptureFormData {
   pesoKg: string; // string no formulário (aceita vírgula/ponto), convertido antes do envio
-  tipoAlimento?: string;
   /**
    * Snapshot do cocho selecionado antes da gravação — embutido aqui (não só
    * uma referência a um ID resolvida depois) de propósito: garante que a
@@ -48,6 +65,14 @@ export interface CaptureFormData {
    * backend. Obrigatório: não existe mais captura sem cocho selecionado.
    */
   cocho: Cocho;
+  /**
+   * Snapshot do tipo de alimento selecionado antes da gravação — mesma
+   * lógica do `cocho` acima (obrigatório, embutido, nunca só uma referência
+   * a um ID resolvida depois). Selecionado logo após o cocho, numa tela
+   * própria (ver `screens/TiposAlimentoScreen.tsx`), não mais digitado
+   * livremente no formulário de captura.
+   */
+  tipoAlimento: TipoAlimento;
   observacoes?: string;
   /**
    * Nome de quem está gravando, configurado uma vez no Lobby (ver

@@ -90,6 +90,29 @@ class Settings(BaseSettings):
     MIN_COCHO_DIMENSAO_CM: float = 5.0
     MAX_COCHO_DIMENSAO_CM: float = 2000.0
 
+    # --- Tipo de alimento (registrado uma vez no aparelho, mesma lógica do
+    # cocho: só quem tem ADMIN_API_KEY cadastra/edita/exclui, snapshot
+    # embutido em cada captura — ver CaptureFormInput.tipo_alimento_*) ---
+    MIN_DENSIDADE_APARENTE_KG_L: float = 0.05
+    MAX_DENSIDADE_APARENTE_KG_L: float = 3.0
+
+    # --- Plausibilidade de `recorded_at` (horário real de gravação do vídeo,
+    # ver CaptureFormInput.recorded_at) — a fonte no aparelho (MediaLibrary ou
+    # data de modificação do arquivo) às vezes devolve um valor tecnicamente
+    # válido (> 0) mas sem relação real com a gravação (ex.: data de
+    # importação de um vídeo copiado de outro lugar, ou relógio do aparelho
+    # desconfigurado). Fora dessa janela, o valor é descartado (`None`) em vez
+    # de guardado errado — ver `validate_recorded_at`. ---
+    # Quantos anos no passado, a partir de agora, ainda é considerado
+    # plausível. Generoso de propósito: só existe pra pegar casos claramente
+    # errados (arquivo copiado/reaproveitado de muito tempo atrás), não pra
+    # apertar precisão.
+    RECORDED_AT_MAX_ANOS_PASSADO: int = 3
+    # Quantos minutos no futuro (a partir de agora, hora do servidor) ainda é
+    # tolerado — cobre diferença de fuso/relógio não perfeitamente sincronizado
+    # entre o aparelho e o servidor, sem aceitar um valor claramente futuro.
+    RECORDED_AT_TOLERANCIA_FUTURO_MIN: int = 1440
+
     # --- Extração de frames ---
     FRAMES_PER_SECOND: float = 3.0
     FOCUS_SCORE_THRESHOLD: float = 100.0  # variância do Laplaciano
@@ -148,6 +171,14 @@ class Settings(BaseSettings):
     GITHUB_REPO: str = ""
     GITHUB_COCHOS_PATH: str = "backend/_data/cochos.json"
     GITHUB_BRANCH: str = "main"
+
+    # --- Backend do registro de tipos de alimento ---
+    # Mesma lógica de COCHO_REGISTRY_BACKEND acima, registro separado
+    # (arquivo/campo diferente), reaproveitando GITHUB_TOKEN/GITHUB_REPO/
+    # GITHUB_BRANCH já configurados acima quando COCHO_REGISTRY_BACKEND (ou
+    # este) usar "github".
+    TIPO_ALIMENTO_REGISTRY_BACKEND: Literal["file", "github"] = "file"
+    GITHUB_TIPOS_ALIMENTO_PATH: str = "backend/_data/tipos_alimento.json"
 
     # --- Roboflow (workspace/projeto NÃO são segredos, a chave é) ---
     ROBOFLOW_API_KEY: str = Field(

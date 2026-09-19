@@ -56,7 +56,9 @@ async def init_chunked_upload(
     mime_type: str = Form(...),
     original_filename: str = Form(...),
     peso_kg: float = Form(...),
-    tipo_alimento: str | None = Form(default=None),
+    tipo_alimento_id: str = Form(..., description="Identificador interno do tipo de alimento selecionado, gerado no aparelho."),
+    tipo_alimento_nome: str = Form(..., description="Nome do tipo de alimento definido pela pessoa."),
+    tipo_alimento_densidade_aparente_kg_l: float = Form(...),
     cocho_id: str = Form(..., description="Identificador interno do cocho selecionado, gerado no aparelho."),
     cocho_nome: str = Form(..., description="Nome do cocho definido pela pessoa."),
     cocho_comprimento_cm: float = Form(...),
@@ -92,7 +94,9 @@ async def init_chunked_upload(
     try:
         form = CaptureFormInput(
             peso_kg=peso_kg,
-            tipo_alimento=tipo_alimento,
+            tipo_alimento_id=tipo_alimento_id,
+            tipo_alimento_nome=tipo_alimento_nome,
+            tipo_alimento_densidade_aparente_kg_l=tipo_alimento_densidade_aparente_kg_l,
             cocho_id=cocho_id,
             cocho_nome=cocho_nome,
             cocho_comprimento_cm=cocho_comprimento_cm,

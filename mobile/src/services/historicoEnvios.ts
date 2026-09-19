@@ -19,7 +19,7 @@ export interface HistoricoEntry {
   captureId: string;
   createdAt: number;
   pesoKg?: string;
-  tipoAlimento?: string;
+  tipoAlimentoNome?: string;
   cochoNome?: string;
   status: HistoricoStatus;
   sentAt?: number;
@@ -96,7 +96,7 @@ export async function registrarNoHistorico(params: {
       captureId: params.captureId,
       createdAt: Date.now(),
       pesoKg: params.form.pesoKg,
-      tipoAlimento: params.form.tipoAlimento,
+      tipoAlimentoNome: params.form.tipoAlimento.nome,
       cochoNome: params.form.cocho.nome,
       status: "aguardando_sincronizacao",
       thumbnailUri: params.thumbnailUri,
@@ -130,7 +130,7 @@ export async function reconciliarComFila(
         captureId: item.captureId,
         createdAt: item.createdAt,
         pesoKg: item.form.pesoKg,
-        tipoAlimento: item.form.tipoAlimento,
+        tipoAlimentoNome: item.form.tipoAlimento.nome,
         cochoNome: item.form.cocho.nome,
         status: "aguardando_sincronizacao",
       });

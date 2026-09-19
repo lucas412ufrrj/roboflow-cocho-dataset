@@ -2,10 +2,11 @@ import { useRef } from "react";
 import { NavigationContainer, type NavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import type { CaptureFormData, Cocho, SelectedVideo } from "@/types/capture";
+import type { CaptureFormData, Cocho, SelectedVideo, TipoAlimento } from "@/types/capture";
 import { registrarRotaAtual } from "@/services/navigationTracker";
 import { LobbyScreen } from "@/screens/LobbyScreen";
 import { CochosScreen } from "@/screens/CochosScreen";
+import { TiposAlimentoScreen } from "@/screens/TiposAlimentoScreen";
 import { CaptureFormScreen } from "@/screens/CaptureFormScreen";
 import { RecordVideoScreen } from "@/screens/RecordVideoScreen";
 import { PreviewScreen } from "@/screens/PreviewScreen";
@@ -16,10 +17,13 @@ import { HistoricoHeaderLink } from "@/components/HistoricoHeaderLink";
 
 export type RootStackParamList = {
   Lobby: undefined;
-  // A pessoa é obrigada a passar por aqui antes de "Nova captura" — ver
+  // A pessoa é obrigada a passar por aqui antes de "Tipo de alimento" — ver
   // `LobbyScreen.tsx` e `CochosScreen.tsx`.
   Cochos: undefined;
-  CaptureForm: { cocho: Cocho };
+  // Obrigatória depois de "Cochos" e antes de "Nova captura" — ver
+  // `CochosScreen.tsx` e `TiposAlimentoScreen.tsx`.
+  TiposAlimento: { cocho: Cocho };
+  CaptureForm: { cocho: Cocho; tipoAlimento: TipoAlimento };
   RecordVideo: { form: CaptureFormData };
   Preview: { form: CaptureFormData; video: SelectedVideo };
   // Só o captureId: os dados da captura (form + vídeo) já estão na fila
@@ -58,6 +62,14 @@ export function RootNavigator() {
           component={CochosScreen}
           options={({ navigation }) => ({
             title: "Cochos",
+            headerRight: () => <HistoricoHeaderLink navigation={navigation} />,
+          })}
+        />
+        <Stack.Screen
+          name="TiposAlimento"
+          component={TiposAlimentoScreen}
+          options={({ navigation }) => ({
+            title: "Tipo de alimento",
             headerRight: () => <HistoricoHeaderLink navigation={navigation} />,
           })}
         />

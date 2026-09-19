@@ -1,0 +1,66 @@
+/**
+ * Sincronização silenciosa do registro de tipos de alimento com o backend.
+ *
+ * Mesma lógica de `cochoSync.ts` — deliberadamente sem qualquer sinal na UI
+ * (nem contador, nem notificação, nem tela de erro). Isso é seguro porque
+ * nenhuma captura depende deste envio ter dado certo: o tipo de alimento
+ * selecionado vai embutido (snapshot) direto em cada captura no momento da
+ * gravação (ver `CaptureFormScreen.tsx` e `CaptureFormData.tipoAlimento` em
+ * `types/capture.ts`), então mesmo que o registro de um tipo de alimento
+ * nunca chegue a sincronizar, nenhuma imagem deixa de ter seu tipo
+ * associado. Este envio serve só para o backend acumular uma lista auxiliar
+ * de tipos de alimento conhecidos, reaproveitável entre aparelhos.
+ *
+ * Roda pelos mesmos gatilhos de `syncEngine.sincronizarFila` (abertura do
+ * app, retorno ao primeiro plano, wifi conectar) — ver `App.tsx`.
+ */
+import { excluirTipoAlimentoNoBackend, registrarTipoAlimentoNoBackend } from "@/api/client";
+import { obterChaveAdmin } from "@/services/adminKey";
+import { temWifiConectado } from "@/services/syncEngine";
+import {
+  listarExclusoesPendentesTipoAlimento,
+  listarTiposAlimentoNaoSincronizados,
+  marcarTipoAlimentoComoSincronizado,
+  removerExclusaoPendenteTipoAlimento,
+} from "@/services/tipoAlimentoStorage";
+
+let sincronizacaoEmAndamento = false;
+
+export async function sincronizarTiposAlimento(): Promise<void> {
+  if (sincronizacaoEmAndamento) return;
+  sincronizacaoEmAndamento = true;
+  try {
+    if (!(await temWifiConectado())) return;
+
+    // Só quem tem a chave de administrador configurada neste aparelho (ver
+    // `services/adminKey.ts`) consegue de fato escrever no backend — sem
+    // ela o backend responde 401 e cada tentativa abaixo cai no catch
+    // silencioso, sem diferença de comportamento visível.
+    const chaveAdmin = await obterChaveAdmin();
+
+    const pendentes = await listarTiposAlimentoNaoSincronizados();
+    for (const tipo of pendentes) {
+      try {
+        await registrarTipoAlimentoNoBackend(tipo, chaveAdmin);
+        await marcarTipoAlimentoComoSincronizado(tipo.id);
+      } catch {
+        // Silencioso de propósito (ver comentário acima) — tenta de novo no
+        // próximo gatilho, sem acumular erro nem avisar ninguém.
+      }
+    }
+
+    // Tipos de alimento excluídos localmente que já tinham sincronizado
+    // antes — ver `tipoAlimentoStorage.excluirTipoAlimento`.
+    const exclusoesPendentes = await listarExclusoesPendentesTipoAlimento();
+    for (const id of exclusoesPendentes) {
+      try {
+        await excluirTipoAlimentoNoBackend(id, chaveAdmin);
+        await removerExclusaoPendenteTipoAlimento(id);
+      } catch {
+        // Mesma lógica silenciosa acima.
+      }
+    }
+  } finally {
+    sincronizacaoEmAndamento = false;
+  }
+}

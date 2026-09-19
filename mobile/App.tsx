@@ -12,6 +12,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { sincronizarFila } from "@/services/syncEngine";
 import { sincronizarCochos } from "@/services/cochoSync";
+import { sincronizarTiposAlimento } from "@/services/tipoAlimentoSync";
 import { listQueue } from "@/services/offlineQueue";
 import { reconciliarComFila } from "@/services/historicoEnvios";
 import { configurarNotificacoes } from "@/services/notifications";
@@ -46,9 +47,11 @@ export default function App() {
     // reabre o app depois, já com wifi (mesmo que seja só pra ver o app, não
     // necessariamente pra gravar uma nova captura).
     sincronizarFila();
-    // Sincronização velada do registro de cochos (ver `cochoSync.ts`) — nos
-    // mesmos gatilhos de `sincronizarFila`, mas sem nenhum retorno visível.
+    // Sincronização velada do registro de cochos (ver `cochoSync.ts`) e do
+    // registro de tipos de alimento (ver `tipoAlimentoSync.ts`) — nos mesmos
+    // gatilhos de `sincronizarFila`, mas sem nenhum retorno visível.
     sincronizarCochos();
+    sincronizarTiposAlimento();
 
     // Aviso de build nativa desatualizada (ver services/buildCheck.ts) —
     // roda nos mesmos gatilhos de `sincronizarFila` (abertura e retorno ao
@@ -68,6 +71,7 @@ export default function App() {
       if (estadoAppAnterior.current.match(/inactive|background/) && proximoEstado === "active") {
         sincronizarFila();
         sincronizarCochos();
+        sincronizarTiposAlimento();
         verificarBuildDesatualizada();
       }
       estadoAppAnterior.current = proximoEstado;
@@ -80,6 +84,7 @@ export default function App() {
       if (estado.type === "wifi" && estado.isConnected) {
         sincronizarFila();
         sincronizarCochos();
+        sincronizarTiposAlimento();
       }
     });
 

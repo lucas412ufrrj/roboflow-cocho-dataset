@@ -15,6 +15,7 @@ from app.api.captures import router as captures_router
 from app.api.chunked_uploads import router as chunked_uploads_router
 from app.api.cochos import router as cochos_router
 from app.api.deps import get_roboflow_client, get_shared_trough_validator
+from app.api.tipos_alimento import router as tipos_alimento_router
 from app.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import limiter
@@ -61,6 +62,7 @@ app.add_middleware(
 app.include_router(captures_router)
 app.include_router(chunked_uploads_router)
 app.include_router(cochos_router)
+app.include_router(tipos_alimento_router)
 
 
 @app.get("/health", tags=["infra"])

@@ -175,6 +175,110 @@ export async function listarCochosNoBackend(): Promise<CochoPayload[]> {
   }));
 }
 
+export interface TipoAlimentoPayload {
+  id: string;
+  nome: string;
+  densidadeAparenteKgL: number;
+}
+
+const TIMEOUT_TIPO_ALIMENTO_MS = 15 * 1000;
+
+/**
+ * Registra (ou reenvia, se já existir) um tipo de alimento no backend — ver
+ * `services/tipoAlimentoSync.ts`, que chama isto em segundo plano, sem
+ * nenhum status visível na UI. Idempotente por `id` (gerado no aparelho):
+ * reenviar o mesmo tipo só sobrescreve com os mesmos dados, nunca duplica.
+ *
+ * `chaveAdmin`: ver comentário em `registrarCochoNoBackend` acima — mesma
+ * lógica, exigida além de `BACKEND_API_KEY` pra qualquer escrita no
+ * registro de tipos de alimento (`verify_admin_api_key`).
+ */
+export async function registrarTipoAlimentoNoBackend(
+  tipoAlimento: TipoAlimentoPayload,
+  chaveAdmin?: string
+): Promise<void> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const headers: Record<string, string> = {
+    "X-Backend-Api-Key": BACKEND_API_KEY,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/tipos-alimento`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        tipo_alimento_id: tipoAlimento.id,
+        nome: tipoAlimento.nome,
+        densidade_aparente_kg_l: tipoAlimento.densidadeAparenteKgL,
+      }),
+    },
+    TIMEOUT_TIPO_ALIMENTO_MS,
+    "Tempo limite excedido ao registrar o tipo de alimento."
+  );
+  await lancarSeErro(response, "Falha ao registrar o tipo de alimento.");
+}
+
+/**
+ * Remove um tipo de alimento do registro auxiliar do backend — ver
+ * `services/tipoAlimentoSync.ts`, chamado em segundo plano depois de uma
+ * exclusão local, sem nenhum status visível na UI. Idempotente: excluir de
+ * novo um id que já não existe lá não é erro. `chaveAdmin`: ver comentário
+ * em `registrarCochoNoBackend` acima.
+ */
+export async function excluirTipoAlimentoNoBackend(id: string, chaveAdmin?: string): Promise<void> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const headers: Record<string, string> = { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" };
+  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/tipos-alimento/${id}`,
+    { method: "DELETE", headers },
+    TIMEOUT_TIPO_ALIMENTO_MS,
+    "Tempo limite excedido ao excluir o tipo de alimento."
+  );
+  await lancarSeErro(response, "Falha ao excluir o tipo de alimento.");
+}
+
+interface TipoAlimentoBackendResponse {
+  tipo_alimento_id: string;
+  nome: string;
+  densidade_aparente_kg_l: number;
+  criado_em: number;
+}
+
+/**
+ * Busca a lista de tipos de alimento conhecida pelo backend — a lista
+ * compartilhada entre a equipe toda (ver
+ * `services/tipoAlimentoStorage.mesclarComServidor`, que combina isto com o
+ * cadastro/exclusão ainda pendentes de sincronizar neste aparelho). Usa só
+ * `BACKEND_API_KEY`: ler a lista não exige a chave de administrador, só
+ * escrever nela.
+ */
+export async function listarTiposAlimentoNoBackend(): Promise<TipoAlimentoPayload[]> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/tipos-alimento`,
+    { method: "GET", headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" } },
+    TIMEOUT_TIPO_ALIMENTO_MS,
+    "Tempo limite excedido ao buscar a lista de tipos de alimento."
+  );
+  await lancarSeErro(response, "Falha ao buscar a lista de tipos de alimento.");
+  const body = (await response.json()) as TipoAlimentoBackendResponse[];
+  return body.map((item) => ({
+    id: item.tipo_alimento_id,
+    nome: item.nome,
+    densidadeAparenteKgL: item.densidade_aparente_kg_l,
+  }));
+}
+
 export interface UploadCaptureParams {
   captureId: string;
   video: SelectedVideo;
@@ -249,7 +353,12 @@ function uploadCaptureUnica({
     } as unknown as Blob);
     formData.append("peso_kg", String(pesoKg));
     formData.append("capture_id", captureId);
-    if (form.tipoAlimento) formData.append("tipo_alimento", form.tipoAlimento);
+    // Snapshot do tipo de alimento selecionado antes da gravação — sempre
+    // presente (nunca omitido, ver `CaptureFormData.tipoAlimento` em
+    // `types/capture.ts`), mesma lógica do snapshot de cocho logo abaixo.
+    formData.append("tipo_alimento_id", form.tipoAlimento.id);
+    formData.append("tipo_alimento_nome", form.tipoAlimento.nome);
+    formData.append("tipo_alimento_densidade_aparente_kg_l", String(form.tipoAlimento.densidadeAparenteKgL));
     // Snapshot do cocho selecionado antes da gravação — sempre presente
     // (nunca omitido, ver `CaptureFormData.cocho` em `types/capture.ts`),
     // igual ao que já era feito com `origem` mais abaixo.
@@ -397,7 +506,13 @@ async function iniciarSessaoEmBlocos(params: {
   formData.append("mime_type", params.video.mimeType || "video/mp4");
   formData.append("original_filename", params.video.fileName || "video.mp4");
   formData.append("peso_kg", String(params.pesoKg));
-  if (params.form.tipoAlimento) formData.append("tipo_alimento", params.form.tipoAlimento);
+  // Ver comentário equivalente em `uploadCaptureUnica` acima.
+  formData.append("tipo_alimento_id", params.form.tipoAlimento.id);
+  formData.append("tipo_alimento_nome", params.form.tipoAlimento.nome);
+  formData.append(
+    "tipo_alimento_densidade_aparente_kg_l",
+    String(params.form.tipoAlimento.densidadeAparenteKgL)
+  );
   // Ver comentário equivalente em `uploadCaptureUnica` acima.
   formData.append("cocho_id", params.form.cocho.id);
   formData.append("cocho_nome", params.form.cocho.nome);

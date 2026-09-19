@@ -19,9 +19,8 @@ type Props = NativeStackScreenProps<RootStackParamList, "CaptureForm">;
 
 export function CaptureFormScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { cocho } = route.params;
+  const { cocho, tipoAlimento } = route.params;
   const [pesoKg, setPesoKg] = useState("");
-  const [tipoAlimento, setTipoAlimento] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [erro, setErro] = useState<string | null>(null);
 
@@ -35,7 +34,7 @@ export function CaptureFormScreen({ navigation, route }: Props) {
     navigation.navigate("RecordVideo", {
       form: {
         pesoKg,
-        tipoAlimento: tipoAlimento.trim() || undefined,
+        tipoAlimento,
         cocho,
         observacoes: observacoes.trim() || undefined,
       },
@@ -52,6 +51,7 @@ export function CaptureFormScreen({ navigation, route }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.titulo}>{cocho.nome}</Text>
+        <Text style={styles.subtitulo}>{tipoAlimento.nome}</Text>
         <Text style={styles.subtitulo}>
           Preencha o peso real do alimento no cocho antes de gravar o vídeo.
         </Text>
@@ -64,15 +64,6 @@ export function CaptureFormScreen({ navigation, route }: Props) {
           placeholder="Ex.: 12.5"
           placeholderTextColor="#8A8F98"
           keyboardType="decimal-pad"
-        />
-
-        <Text style={styles.label}>Tipo de alimento (opcional)</Text>
-        <TextInput
-          style={styles.input}
-          value={tipoAlimento}
-          onChangeText={setTipoAlimento}
-          placeholder="Ex.: Silagem, Ração"
-          placeholderTextColor="#8A8F98"
         />
 
         <Text style={styles.label}>Observações (opcional)</Text>

@@ -14,6 +14,11 @@ from app.services.cocho_registry import (
 )
 from app.services.idempotency import FileIdempotencyStore, IdempotencyStore
 from app.services.roboflow_client import RoboflowClient
+from app.services.tipo_alimento_registry import (
+    FileTipoAlimentoRegistry,
+    GitHubTipoAlimentoRegistry,
+    TipoAlimentoRegistry,
+)
 from app.services.trough_validator import get_trough_validator
 from app.storage.factory import get_storage_backend
 
@@ -46,6 +51,21 @@ def get_cocho_registry() -> CochoRegistry:
         )
     path = f"{settings.PERSISTENT_DATA_PATH}/_cochos.json"
     return FileCochoRegistry(path)
+
+
+@lru_cache
+def get_tipo_alimento_registry() -> TipoAlimentoRegistry:
+    # Mesma lógica de `get_cocho_registry` acima, registro separado.
+    settings = get_settings()
+    if settings.TIPO_ALIMENTO_REGISTRY_BACKEND == "github":
+        return GitHubTipoAlimentoRegistry(
+            token=settings.GITHUB_TOKEN,
+            repo=settings.GITHUB_REPO,
+            path=settings.GITHUB_TIPOS_ALIMENTO_PATH,
+            branch=settings.GITHUB_BRANCH,
+        )
+    path = f"{settings.PERSISTENT_DATA_PATH}/_tipos_alimento.json"
+    return FileTipoAlimentoRegistry(path)
 
 
 @lru_cache

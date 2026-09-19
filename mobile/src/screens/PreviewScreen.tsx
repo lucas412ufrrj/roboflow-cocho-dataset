@@ -35,7 +35,7 @@ import { gerarMiniatura } from "@/services/thumbnails";
 import { obterNomeOperador } from "@/services/operador";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Preview">;
-type CampoRevisao = "peso" | "tipoAlimento" | "observacoes";
+type CampoRevisao = "peso" | "observacoes";
 
 /**
  * Linha compacta de revisão: mostra o valor com um link "editar" sublinhado
@@ -91,7 +91,6 @@ export function PreviewScreen({ navigation, route }: Props) {
   // aqui: a pessoa pode revisar e corrigir sem precisar voltar pra tela de
   // formulário (o que, de qualquer forma, também exigiria regravar o vídeo).
   const [pesoKg, setPesoKg] = useState(form.pesoKg);
-  const [tipoAlimento, setTipoAlimento] = useState(form.tipoAlimento ?? "");
   const [observacoes, setObservacoes] = useState(form.observacoes ?? "");
   const [erroPeso, setErroPeso] = useState<string | null>(null);
 
@@ -126,7 +125,6 @@ export function PreviewScreen({ navigation, route }: Props) {
       }
       setErroPeso(null);
     }
-    if (campo === "tipoAlimento") setTipoAlimento((v) => v.trim());
     if (campo === "observacoes") setObservacoes((v) => v.trim());
     setCampoEditando(null);
   }
@@ -161,10 +159,11 @@ export function PreviewScreen({ navigation, route }: Props) {
     const operador = await obterNomeOperador();
     const formAtualizado: CaptureFormData = {
       pesoKg,
-      tipoAlimento: tipoAlimento.trim() || undefined,
-      // Não editável aqui: o cocho já foi selecionado antes de gravar (ver
-      // `CochosScreen.tsx` -> `CaptureFormScreen.tsx`) e mudar de cocho
-      // depois exigiria regravar o vídeo de qualquer forma.
+      // Não editáveis aqui: cocho e tipo de alimento já foram selecionados
+      // antes de gravar (ver `CochosScreen.tsx` -> `TiposAlimentoScreen.tsx`
+      // -> `CaptureFormScreen.tsx`) e mudar qualquer um dos dois depois
+      // exigiria regravar o vídeo de qualquer forma.
+      tipoAlimento: form.tipoAlimento,
       cocho: form.cocho,
       observacoes: observacoes.trim() || undefined,
       operador,
@@ -250,23 +249,12 @@ export function PreviewScreen({ navigation, route }: Props) {
             </LinhaRevisao>
             {erroPeso && <Text style={styles.erro}>{erroPeso}</Text>}
 
-            <LinhaRevisao
-              label="Tipo de alimento"
-              editando={campoEditando === "tipoAlimento"}
-              valorExibicao={tipoAlimento || "Não informado"}
-              temValor={!!tipoAlimento}
-              onIniciarEdicao={() => setCampoEditando("tipoAlimento")}
-              onSalvar={() => salvarCampo("tipoAlimento")}
-            >
-              <TextInput
-                style={styles.input}
-                value={tipoAlimento}
-                onChangeText={setTipoAlimento}
-                placeholder="Ex.: Silagem, Ração"
-                placeholderTextColor="#8A8F98"
-                autoFocus
-              />
-            </LinhaRevisao>
+            <View style={styles.infoLinha}>
+              <Text style={styles.infoLabel}>Tipo de alimento</Text>
+              <Text style={styles.infoValor} numberOfLines={1}>
+                {form.tipoAlimento.nome}
+              </Text>
+            </View>
 
             <View style={styles.infoLinha}>
               <Text style={styles.infoLabel}>Cocho</Text>

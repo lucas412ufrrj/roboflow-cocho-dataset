@@ -23,6 +23,7 @@ def test_metadata_contem_todos_os_campos_exigidos():
         focus_score=210.7,
         cocho_completo=True,
         tipo_alimento="Ração",
+        tipo_alimento_densidade_aparente_kg_l=0.6,
         observacoes="Teste",
         **_COCHO_KWARGS,
     )
@@ -35,6 +36,7 @@ def test_metadata_contem_todos_os_campos_exigidos():
         "focus_score",
         "cocho_completo",
         "tipo_alimento",
+        "tipo_alimento_densidade_aparente_kg_l",
         "cocho_id",
         "cocho_nome",
         "cocho_comprimento_cm",
@@ -48,11 +50,13 @@ def test_metadata_contem_todos_os_campos_exigidos():
     assert data["video_id"] == "video-123"
     assert data["cocho_completo"] is True
     assert data["cocho_nome"] == "Cocho de teste"
+    assert data["tipo_alimento_densidade_aparente_kg_l"] == 0.6
 
 
 def test_metadata_campos_realmente_opcionais_podem_ser_none():
-    # tipo_alimento/observacoes/recorded_at/operador continuam opcionais — só
-    # o snapshot do cocho (ver `_COCHO_KWARGS`) deixou de ser.
+    # tipo_alimento/tipo_alimento_densidade_aparente_kg_l/observacoes/
+    # recorded_at/operador continuam opcionais — só o snapshot do cocho (ver
+    # `_COCHO_KWARGS`) deixou de ser.
     meta = FrameMetadata(
         peso_kg=10.0,
         video_id="video-abc",
@@ -63,6 +67,7 @@ def test_metadata_campos_realmente_opcionais_podem_ser_none():
     )
     data = meta.to_json_dict()
     assert data["tipo_alimento"] is None
+    assert data["tipo_alimento_densidade_aparente_kg_l"] is None
     assert data["observacoes"] is None
     assert data["recorded_at"] is None
     assert data["operador"] is None
@@ -94,3 +99,75 @@ def test_metadata_serializa_para_json_valido():
     )
     json_str = meta.model_dump_json()
     assert '"peso_kg":5.5' in json_str.replace(" ", "")
+
+
+def test_metadata_limita_numeros_a_quatro_casas_decimais():
+    # focus_score (variância do Laplaciano) e escala/área (conversões
+    # geométricas) chegam de cálculos em ponto flutuante sem nenhuma precisão
+    # real além da 4ª casa — antes desta checagem, saíam sem nenhum
+    # arredondamento.
+    meta = FrameMetadata(
+        peso_kg=42.123456,
+        video_id="video-123",
+        frame_time_ms=0,
+        focus_score=123.456789123,
+        cocho_completo=True,
+        tipo_alimento_densidade_aparente_kg_l=0.123456789,
+        escala_cm_por_pixel=0.673333333333,
+        cocho_area_cm2=6800.66666666667,
+        **_COCHO_KWARGS,
+    )
+
+    def casas_decimais(valor: float) -> int:
+        texto = repr(valor)
+        return len(texto.split(".")[1]) if "." in texto else 0
+
+    for campo in (
+        "peso_kg",
+        "focus_score",
+        "tipo_alimento_densidade_aparente_kg_l",
+        "escala_cm_por_pixel",
+        "cocho_area_cm2",
+        "cocho_comprimento_cm",
+        "cocho_largura_cm",
+        "cocho_altura_cm",
+    ):
+        valor = getattr(meta, campo)
+        assert casas_decimais(valor) <= 4, f"{campo}={valor} passou de 4 casas decimais"
+
+    assert meta.focus_score == 123.4568
+    assert meta.tipo_alimento_densidade_aparente_kg_l == 0.1235
+    assert meta.escala_cm_por_pixel == 0.6733
+    assert meta.cocho_area_cm2 == 6800.6667
+
+
+def test_horario_gravacao_e_derivado_de_recorded_at():
+    # 2026-01-15 15:30 em America/Sao_Paulo, convertido pra epoch ms (UTC) —
+    # ver `_derivar_horario_gravacao`/`_FUSO_HORARIO_EXIBICAO` em schemas.py.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    momento = datetime(2026, 1, 15, 15, 30, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+    meta = FrameMetadata(
+        peso_kg=10.0,
+        video_id="video-hora",
+        frame_time_ms=0,
+        focus_score=100.0,
+        cocho_completo=True,
+        recorded_at=int(momento.timestamp() * 1000),
+        **_COCHO_KWARGS,
+    )
+    assert meta.horario_gravacao == "15:30"
+
+
+def test_horario_gravacao_e_none_quando_recorded_at_e_none():
+    meta = FrameMetadata(
+        peso_kg=10.0,
+        video_id="video-sem-hora",
+        frame_time_ms=0,
+        focus_score=100.0,
+        cocho_completo=True,
+        recorded_at=None,
+        **_COCHO_KWARGS,
+    )
+    assert meta.horario_gravacao is None

@@ -16,7 +16,9 @@ def service(tmp_path) -> ChunkedUploadService:
 def _form(**overrides) -> CaptureFormInput:
     base = dict(
         peso_kg=12.5,
-        tipo_alimento="Ração",
+        tipo_alimento_id="tipo-01",
+        tipo_alimento_nome="Ração",
+        tipo_alimento_densidade_aparente_kg_l=0.6,
         cocho_id="cocho-01",
         cocho_nome="Cocho de teste",
         cocho_comprimento_cm=200.0,
