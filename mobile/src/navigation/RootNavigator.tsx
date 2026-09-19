@@ -1,8 +1,11 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { useRef } from "react";
+import { NavigationContainer, type NavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import type { CaptureFormData, SelectedVideo } from "@/types/capture";
+import type { CaptureFormData, Cocho, SelectedVideo } from "@/types/capture";
+import { registrarRotaAtual } from "@/services/navigationTracker";
 import { LobbyScreen } from "@/screens/LobbyScreen";
+import { CochosScreen } from "@/screens/CochosScreen";
 import { CaptureFormScreen } from "@/screens/CaptureFormScreen";
 import { RecordVideoScreen } from "@/screens/RecordVideoScreen";
 import { PreviewScreen } from "@/screens/PreviewScreen";
@@ -13,7 +16,10 @@ import { HistoricoHeaderLink } from "@/components/HistoricoHeaderLink";
 
 export type RootStackParamList = {
   Lobby: undefined;
-  CaptureForm: undefined;
+  // A pessoa é obrigada a passar por aqui antes de "Nova captura" — ver
+  // `LobbyScreen.tsx` e `CochosScreen.tsx`.
+  Cochos: undefined;
+  CaptureForm: { cocho: Cocho };
   RecordVideo: { form: CaptureFormData };
   Preview: { form: CaptureFormData; video: SelectedVideo };
   // Só o captureId: os dados da captura (form + vídeo) já estão na fila
@@ -26,8 +32,14 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
+  const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => registrarRotaAtual(navigationRef.current?.getCurrentRoute()?.name)}
+      onStateChange={() => registrarRotaAtual(navigationRef.current?.getCurrentRoute()?.name)}
+    >
       <Stack.Navigator
         initialRouteName="Lobby"
         screenOptions={{
@@ -40,6 +52,14 @@ export function RootNavigator() {
           name="Lobby"
           component={LobbyScreen}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Cochos"
+          component={CochosScreen}
+          options={({ navigation }) => ({
+            title: "Cochos",
+            headerRight: () => <HistoricoHeaderLink navigation={navigation} />,
+          })}
         />
         <Stack.Screen
           name="CaptureForm"

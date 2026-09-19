@@ -31,6 +31,14 @@ class TroughValidationResult:
     cocho_completo: bool
     confidence: float
     motivo: str | None = None
+    # Geometria em pixel da imagem, só preenchida por `RoboflowTroughValidator`
+    # (o mock não tem imagem de verdade pra medir nada). Usada por
+    # `services/scale_calculator.py` pra converter pixel em centímetro — ver
+    # comentário lá. `trough_polygon_px` é o contorno do cocho (lista de
+    # vértices, na mesma ordem que o Roboflow devolve); `trough_end_points_px`
+    # são os centros das duas extremidades usadas pra calibrar escala.
+    trough_polygon_px: list[tuple[float, float]] | None = None
+    trough_end_points_px: list[tuple[float, float]] | None = None
 
 
 class TroughValidator(ABC):
@@ -170,7 +178,20 @@ class RoboflowTroughValidator(TroughValidator):
             # extremidade mais confiante) — é o que realmente limita se a
             # foto está completa, não a detecção mais forte.
             limiting_confidence = float(strong_ends[1]["confidence"])
-            return TroughValidationResult(cocho_completo=True, confidence=limiting_confidence)
+
+            # Geometria pra calibração de escala (ver `scale_calculator.py`).
+            # As duas extremidades mais confiantes são as mesmas já usadas
+            # pra decidir "cocho completo" acima — nenhuma detecção nova.
+            end_points = [RoboflowTroughValidator._extrair_centro(p) for p in strong_ends[:2]]
+            end_points_validos = [p for p in end_points if p is not None]
+            trough_polygon = RoboflowTroughValidator._extrair_poligono(trough_preds[0])
+
+            return TroughValidationResult(
+                cocho_completo=True,
+                confidence=limiting_confidence,
+                trough_polygon_px=trough_polygon,
+                trough_end_points_px=end_points_validos if len(end_points_validos) == 2 else None,
+            )
 
         if not trough_preds:
             motivo = "cocho_nao_detectado (roboflow)"
@@ -194,6 +215,31 @@ class RoboflowTroughValidator(TroughValidator):
     async def aclose(self) -> None:
         if self._client is not None:
             await self._client.aclose()
+
+    @staticmethod
+    def _extrair_poligono(pred: dict) -> list[tuple[float, float]] | None:
+        # Formato padrão de resposta do Roboflow pra modelo de segmentação de
+        # instância: cada predição tem "points": [{"x":.., "y":..}, ...]
+        # descrevendo o contorno. Se algum dia o modelo virar bounding box
+        # puro (sem "points"), isso simplesmente não preenche a geometria —
+        # nunca quebra a validação em si, que não depende disso.
+        points = pred.get("points")
+        if not points:
+            return None
+        try:
+            return [(float(p["x"]), float(p["y"])) for p in points]
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extrair_centro(pred: dict) -> tuple[float, float] | None:
+        x, y = pred.get("x"), pred.get("y")
+        if x is None or y is None:
+            return None
+        try:
+            return (float(x), float(y))
+        except (TypeError, ValueError):
+            return None
 
 
 def get_trough_validator(settings: Settings | None = None) -> TroughValidator:

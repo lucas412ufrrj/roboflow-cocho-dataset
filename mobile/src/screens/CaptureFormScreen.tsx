@@ -17,11 +17,11 @@ import { parsePesoInput } from "@/utils/peso";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CaptureForm">;
 
-export function CaptureFormScreen({ navigation }: Props) {
+export function CaptureFormScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { cocho } = route.params;
   const [pesoKg, setPesoKg] = useState("");
   const [tipoAlimento, setTipoAlimento] = useState("");
-  const [cochoId, setCochoId] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [erro, setErro] = useState<string | null>(null);
 
@@ -36,7 +36,7 @@ export function CaptureFormScreen({ navigation }: Props) {
       form: {
         pesoKg,
         tipoAlimento: tipoAlimento.trim() || undefined,
-        cochoId: cochoId.trim() || undefined,
+        cocho,
         observacoes: observacoes.trim() || undefined,
       },
     });
@@ -51,7 +51,7 @@ export function CaptureFormScreen({ navigation }: Props) {
         contentContainerStyle={[styles.container, { paddingBottom: 20 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.titulo}>Dados da pesagem</Text>
+        <Text style={styles.titulo}>{cocho.nome}</Text>
         <Text style={styles.subtitulo}>
           Preencha o peso real do alimento no cocho antes de gravar o vídeo.
         </Text>
@@ -72,15 +72,6 @@ export function CaptureFormScreen({ navigation }: Props) {
           value={tipoAlimento}
           onChangeText={setTipoAlimento}
           placeholder="Ex.: Silagem, Ração"
-          placeholderTextColor="#8A8F98"
-        />
-
-        <Text style={styles.label}>ID do cocho (opcional)</Text>
-        <TextInput
-          style={styles.input}
-          value={cochoId}
-          onChangeText={setCochoId}
-          placeholder="Ex.: cocho-07"
           placeholderTextColor="#8A8F98"
         />
 

@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.captures import router as captures_router
 from app.api.chunked_uploads import router as chunked_uploads_router
+from app.api.cochos import router as cochos_router
 from app.api.deps import get_roboflow_client, get_shared_trough_validator
 from app.config import get_settings
 from app.core.logging import configure_logging
@@ -59,6 +60,7 @@ app.add_middleware(
 
 app.include_router(captures_router)
 app.include_router(chunked_uploads_router)
+app.include_router(cochos_router)
 
 
 @app.get("/health", tags=["infra"])

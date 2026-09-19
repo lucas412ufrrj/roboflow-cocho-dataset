@@ -4,7 +4,9 @@ Cliente para o endpoint de upload de imagens do dataset Roboflow.
 Regras seguidas aqui (ver especificação do projeto):
 - Cada frame aprovado é enviado via multipart/form-data.
 - O `capture_id` do vídeo é usado como `batch_name` no Roboflow.
-- Tags: "mobile-capture", "frame-valid" e, se houver, o tipo de alimento.
+- Tags: "mobile-capture", "frame-valid", se houver o tipo de alimento, e
+  "experimento-<rótulo>" (ver CaptureFormInput.cocho_experimento) — permite
+  filtrar/comparar imagens por experimento direto na interface do Roboflow.
 - Metadata JSON: peso_kg, video_id, frame_time_ms, focus_score,
   cocho_completo, tipo_alimento, cocho_id, observacoes.
 - Timeout + retries com exponential backoff.
@@ -65,10 +67,15 @@ class RoboflowClient:
         if self._owns_client and self._client is not None:
             await self._client.aclose()
 
-    def _build_tags(self, tipo_alimento: str | None) -> list[str]:
+    def _build_tags(self, tipo_alimento: str | None, cocho_experimento: str) -> list[str]:
         tags = ["mobile-capture", "frame-valid"]
         if tipo_alimento:
             tags.append(tipo_alimento)
+        if cocho_experimento:
+            # Prefixo pra não colidir/confundir com a tag livre de tipo_alimento
+            # acima, e pra ficar claro no Roboflow que essa tag identifica um
+            # experimento/ano, não um tipo de alimento.
+            tags.append(f"experimento-{cocho_experimento}")
         return tags
 
     async def upload_frame(
@@ -132,7 +139,7 @@ class RoboflowClient:
     ) -> RoboflowUploadResult:
         url = f"{self.settings.ROBOFLOW_UPLOAD_BASE_URL}/dataset/{self.settings.ROBOFLOW_PROJECT}/upload"
 
-        tags = self._build_tags(metadata.tipo_alimento)
+        tags = self._build_tags(metadata.tipo_alimento, metadata.cocho_experimento)
         query_params: list[tuple[str, str]] = [
             ("api_key", self.settings.ROBOFLOW_API_KEY),
             ("batch_name", capture_id),

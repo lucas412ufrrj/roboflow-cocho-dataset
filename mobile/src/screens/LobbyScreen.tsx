@@ -92,7 +92,7 @@ export function LobbyScreen({ navigation }: Props) {
         <View style={styles.opcoes}>
           <Pressable
             style={({ pressed }) => [styles.opcao, styles.opcaoAtiva, pressed && styles.opcaoPressionada]}
-            onPress={() => navigation.navigate("CaptureForm")}
+            onPress={() => navigation.navigate("Cochos")}
           >
             <View style={styles.opcaoTextos}>
               <Text style={styles.opcaoTitulo}>Adicionar imagens ao dataset</Text>

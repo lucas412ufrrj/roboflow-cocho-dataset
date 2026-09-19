@@ -60,6 +60,121 @@ export async function getAppInfo(): Promise<AppInfo> {
   return (await response.json()) as AppInfo;
 }
 
+export interface CochoPayload {
+  id: string;
+  nome: string;
+  comprimentoCm: number;
+  larguraCm: number;
+  alturaCm: number;
+  experimento: string;
+}
+
+const TIMEOUT_COCHO_MS = 15 * 1000;
+
+/**
+ * Registra (ou reenvia, se já existir) um cocho no backend — ver
+ * `services/cochoSync.ts`, que chama isto em segundo plano, sem nenhum
+ * status visível na UI. Idempotente por `id` (gerado no aparelho): reenviar
+ * o mesmo cocho só sobrescreve com os mesmos dados, nunca duplica.
+ *
+ * `chaveAdmin` é a chave configurada localmente em `SobreScreen.tsx` (ver
+ * `services/adminKey.ts`) — o backend exige ela além de `BACKEND_API_KEY`
+ * pra qualquer escrita no registro de cochos (`verify_admin_api_key`).
+ * `undefined` quando o aparelho não é de administrador: a chamada segue
+ * mesmo assim e o backend responde 401, tratado silenciosamente por quem
+ * chama (ver `cochoSync.ts`).
+ */
+export async function registrarCochoNoBackend(cocho: CochoPayload, chaveAdmin?: string): Promise<void> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const headers: Record<string, string> = {
+    "X-Backend-Api-Key": BACKEND_API_KEY,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/cochos`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        cocho_id: cocho.id,
+        nome: cocho.nome,
+        comprimento_cm: cocho.comprimentoCm,
+        largura_cm: cocho.larguraCm,
+        altura_cm: cocho.alturaCm,
+        experimento: cocho.experimento,
+      }),
+    },
+    TIMEOUT_COCHO_MS,
+    "Tempo limite excedido ao registrar o cocho."
+  );
+  await lancarSeErro(response, "Falha ao registrar o cocho.");
+}
+
+/**
+ * Remove um cocho do registro auxiliar do backend — ver
+ * `services/cochoSync.ts`, chamado em segundo plano depois de uma exclusão
+ * local, sem nenhum status visível na UI. Idempotente: excluir de novo um id
+ * que já não existe lá não é erro. `chaveAdmin`: ver comentário em
+ * `registrarCochoNoBackend` acima.
+ */
+export async function excluirCochoNoBackend(id: string, chaveAdmin?: string): Promise<void> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const headers: Record<string, string> = { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" };
+  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/cochos/${id}`,
+    { method: "DELETE", headers },
+    TIMEOUT_COCHO_MS,
+    "Tempo limite excedido ao excluir o cocho."
+  );
+  await lancarSeErro(response, "Falha ao excluir o cocho.");
+}
+
+interface CochoBackendResponse {
+  cocho_id: string;
+  nome: string;
+  comprimento_cm: number;
+  largura_cm: number;
+  altura_cm: number;
+  experimento: string;
+  criado_em: number;
+}
+
+/**
+ * Busca a lista de cochos conhecida pelo backend — a lista compartilhada
+ * entre a equipe toda (ver `services/cochoStorage.mesclarComServidor`, que
+ * combina isto com o cadastro/exclusão ainda pendentes de sincronizar neste
+ * aparelho). Usa só `BACKEND_API_KEY`: ler a lista não exige a chave de
+ * administrador, só escrever nela.
+ */
+export async function listarCochosNoBackend(): Promise<CochoPayload[]> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  const response = await fetchComTimeout(
+    `${API_BASE_URL}/api/cochos`,
+    { method: "GET", headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" } },
+    TIMEOUT_COCHO_MS,
+    "Tempo limite excedido ao buscar a lista de cochos."
+  );
+  await lancarSeErro(response, "Falha ao buscar a lista de cochos.");
+  const body = (await response.json()) as CochoBackendResponse[];
+  return body.map((item) => ({
+    id: item.cocho_id,
+    nome: item.nome,
+    comprimentoCm: item.comprimento_cm,
+    larguraCm: item.largura_cm,
+    alturaCm: item.altura_cm,
+    experimento: item.experimento,
+  }));
+}
+
 export interface UploadCaptureParams {
   captureId: string;
   video: SelectedVideo;
@@ -135,7 +250,15 @@ function uploadCaptureUnica({
     formData.append("peso_kg", String(pesoKg));
     formData.append("capture_id", captureId);
     if (form.tipoAlimento) formData.append("tipo_alimento", form.tipoAlimento);
-    if (form.cochoId) formData.append("cocho_id", form.cochoId);
+    // Snapshot do cocho selecionado antes da gravação — sempre presente
+    // (nunca omitido, ver `CaptureFormData.cocho` em `types/capture.ts`),
+    // igual ao que já era feito com `origem` mais abaixo.
+    formData.append("cocho_id", form.cocho.id);
+    formData.append("cocho_nome", form.cocho.nome);
+    formData.append("cocho_comprimento_cm", String(form.cocho.comprimentoCm));
+    formData.append("cocho_largura_cm", String(form.cocho.larguraCm));
+    formData.append("cocho_altura_cm", String(form.cocho.alturaCm));
+    formData.append("cocho_experimento", form.cocho.experimento);
     if (form.observacoes) formData.append("observacoes", form.observacoes);
     // Quem gravou, configurado uma vez no Lobby — ver `services/operador.ts`.
     // Ausente quando nunca foi configurado no aparelho.
@@ -275,7 +398,13 @@ async function iniciarSessaoEmBlocos(params: {
   formData.append("original_filename", params.video.fileName || "video.mp4");
   formData.append("peso_kg", String(params.pesoKg));
   if (params.form.tipoAlimento) formData.append("tipo_alimento", params.form.tipoAlimento);
-  if (params.form.cochoId) formData.append("cocho_id", params.form.cochoId);
+  // Ver comentário equivalente em `uploadCaptureUnica` acima.
+  formData.append("cocho_id", params.form.cocho.id);
+  formData.append("cocho_nome", params.form.cocho.nome);
+  formData.append("cocho_comprimento_cm", String(params.form.cocho.comprimentoCm));
+  formData.append("cocho_largura_cm", String(params.form.cocho.larguraCm));
+  formData.append("cocho_altura_cm", String(params.form.cocho.alturaCm));
+  formData.append("cocho_experimento", params.form.cocho.experimento);
   if (params.form.observacoes) formData.append("observacoes", params.form.observacoes);
   if (params.form.operador) formData.append("operador", params.form.operador);
   if (params.video.recordedAt) {

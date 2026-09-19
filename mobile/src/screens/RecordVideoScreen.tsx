@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, Vibration, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, Vibration, View, useWindowDimensions } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from "expo-camera";
@@ -13,8 +13,15 @@ import { MAX_DURATION_S, MIN_DURATION_S, RECORDING_DURATION_S } from "@/utils/vi
 type Props = NativeStackScreenProps<RootStackParamList, "RecordVideo">;
 type Modo = "escolha" | "camera";
 
+// Guia visual de enquadramento (ver comentário maior mais abaixo, onde a
+// proporção é calculada) — tamanho dos "cantos" do contorno, não do
+// contorno em si.
+const TAMANHO_CANTO_GUIA = 28;
+const ESPESSURA_CANTO_GUIA = 4;
+
 export function RecordVideoScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: larguraTela, height: alturaTela } = useWindowDimensions();
   const { form } = route.params;
   const [abrindoCamera, setAbrindoCamera] = useState(false);
   const [modo, setModo] = useState<Modo>("escolha");
@@ -201,16 +208,60 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     }
   }
 
+  /**
+   * Guia visual de enquadramento: um contorno na tela pra ajudar a manter
+   * distância e ângulo da câmera parecidos entre pessoas e entre anos. A
+   * proporção do contorno vem do comprimento/largura já cadastrados pra
+   * este cocho (`form.cocho`, o mesmo snapshot que já viaja desde o
+   * cadastro em `CochosScreen.tsx`), então ele se adapta sozinho quando um
+   * cocho de outro formato for cadastrado, sem precisar redesenhar nada
+   * aqui — inclusive o cocho fisicamente diferente do experimento que
+   * começa em 2027 (ver `decisoes-anotacao.md`).
+   *
+   * Duas limitações conhecidas, aceitas por ora: (1) isso dá a FORMA certa
+   * do contorno, não o tamanho físico certo — não sabemos o campo de visão
+   * da câmera de cada aparelho, então não dá pra saber a que distância
+   * real o contorno corresponde; a pessoa ainda se posiciona até o cocho
+   * visível bater no contorno, não até uma distância em metros. (2)
+   * comprimento/largura são medidos de cima, mas o vídeo é gravado de um
+   * ângulo, então a proporção que aparece na tela pode não bater
+   * exatamente com a proporção física — tratar como ponto de partida
+   * razoável, ajustado depois com um teste real, não como matemática
+   * exata.
+   */
+  const proporcaoCocho = form.cocho.larguraCm > 0 ? form.cocho.comprimentoCm / form.cocho.larguraCm : 3;
+  const larguraMaximaGuia = larguraTela * 0.82;
+  const alturaMaximaGuia = alturaTela * 0.5;
+  let larguraGuia = larguraMaximaGuia;
+  let alturaGuia = larguraGuia / proporcaoCocho;
+  if (alturaGuia > alturaMaximaGuia) {
+    alturaGuia = alturaMaximaGuia;
+    larguraGuia = alturaGuia * proporcaoCocho;
+  }
+
   if (modo === "camera") {
     return (
       <View style={styles.telaCamera}>
         <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} mode="video" facing="back" videoQuality="720p" />
 
+        <View style={styles.guiaContainer} pointerEvents="none">
+          <View style={{ width: larguraGuia, height: alturaGuia }}>
+            <View style={[styles.guiaCantoH, styles.guiaCantoTopoEsquerdo]} />
+            <View style={[styles.guiaCantoV, styles.guiaCantoTopoEsquerdo]} />
+            <View style={[styles.guiaCantoH, styles.guiaCantoTopoDireito]} />
+            <View style={[styles.guiaCantoV, styles.guiaCantoTopoDireito]} />
+            <View style={[styles.guiaCantoH, styles.guiaCantoBaseEsquerdo]} />
+            <View style={[styles.guiaCantoV, styles.guiaCantoBaseEsquerdo]} />
+            <View style={[styles.guiaCantoH, styles.guiaCantoBaseDireito]} />
+            <View style={[styles.guiaCantoV, styles.guiaCantoBaseDireito]} />
+          </View>
+        </View>
+
         <View style={[styles.overlayTopo, { top: insets.top + 12 }]} pointerEvents="box-none">
           <Text style={styles.avisoCamera}>
             {gravando
               ? "Gravando... o vídeo para sozinho, é só manter o cocho no quadro."
-              : "Aponte para o cocho e aperte para gravar."}
+              : "Alinhe o cocho dentro da marcação e aperte para gravar."}
           </Text>
         </View>
 
@@ -282,6 +333,25 @@ const styles = StyleSheet.create({
   botaoSecundarioTexto: { color: "#3D8BFD", fontSize: 15, fontWeight: "600" },
 
   telaCamera: { flex: 1, backgroundColor: "#000" },
+  guiaContainer: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  guiaCantoH: {
+    position: "absolute",
+    width: TAMANHO_CANTO_GUIA,
+    height: ESPESSURA_CANTO_GUIA,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 2,
+  },
+  guiaCantoV: {
+    position: "absolute",
+    width: ESPESSURA_CANTO_GUIA,
+    height: TAMANHO_CANTO_GUIA,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 2,
+  },
+  guiaCantoTopoEsquerdo: { top: 0, left: 0 },
+  guiaCantoTopoDireito: { top: 0, right: 0 },
+  guiaCantoBaseEsquerdo: { bottom: 0, left: 0 },
+  guiaCantoBaseDireito: { bottom: 0, right: 0 },
   overlayTopo: { position: "absolute", left: 16, right: 16, alignItems: "center" },
   avisoCamera: {
     color: "#FFFFFF",

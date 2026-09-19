@@ -203,7 +203,7 @@ async function enviarItem(
     // próprios erros).
     notificarEnvioConcluido({
       pesoKg: item.form.pesoKg,
-      cochoId: item.form.cochoId,
+      cochoNome: item.form.cocho.nome,
       framesAceitos: resposta.total_aprovados,
       totalFrames: resposta.total_candidatos,
     });
@@ -222,7 +222,7 @@ async function enviarItem(
     // gerar notificação a cada retry automático.
     if (tentativas >= LIMITE_TENTATIVAS_PARA_AVISAR && !item.notificouFalha) {
       updateQueueItem(item.captureId, { notificouFalha: true }).catch(() => undefined);
-      notificarFalhaPersistente({ pesoKg: item.form.pesoKg, cochoId: item.form.cochoId, tentativas });
+      notificarFalhaPersistente({ pesoKg: item.form.pesoKg, cochoNome: item.form.cocho.nome, tentativas });
     }
     return null;
   } finally {

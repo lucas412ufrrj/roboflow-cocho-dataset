@@ -41,6 +41,21 @@ class Settings(BaseSettings):
         description="Chave usada pelo app móvel para autenticar no backend.",
     )
 
+    # --- Autenticação de escrita no registro de cochos ---
+    # Segredo separado de BACKEND_API_KEY: todo o app conhece o BACKEND_API_KEY
+    # (senão ninguém conseguiria nem listar/enviar captura), mas só quem
+    # cadastra/edita/exclui cocho deve ter este aqui — ver
+    # `verify_admin_api_key` em `core/security.py` e `mobile/src/screens/
+    # SobreScreen.tsx` (onde essa chave é digitada e guardada localmente no
+    # aparelho de quem administra). É uma trava simples pra evitar edição
+    # acidental pela equipe em campo, não proteção contra alguém decidido a
+    # extrair a chave do próprio app — proteção de verdade exigiria login por
+    # pessoa validado no servidor, planejado como evolução futura.
+    ADMIN_API_KEY: str = Field(
+        default="change-me-admin-api-key",
+        description="Chave exigida para cadastrar, editar ou excluir um cocho.",
+    )
+
     # --- Rate limiting ---
     RATE_LIMIT_CAPTURES: str = "10/minute"
     # Bem mais generoso que RATE_LIMIT_CAPTURES: um único vídeo grande vira
@@ -69,6 +84,11 @@ class Settings(BaseSettings):
     # --- Peso ---
     MIN_PESO_KG: float = 0.01
     MAX_PESO_KG: float = 2000.0
+
+    # --- Cocho (registrado uma vez no aparelho, snapshot embutido em cada
+    # captura — ver CaptureFormInput.cocho_* em models/schemas.py) ---
+    MIN_COCHO_DIMENSAO_CM: float = 5.0
+    MAX_COCHO_DIMENSAO_CM: float = 2000.0
 
     # --- Extração de frames ---
     FRAMES_PER_SECOND: float = 3.0

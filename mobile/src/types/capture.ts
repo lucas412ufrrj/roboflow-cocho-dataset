@@ -11,10 +11,43 @@ export type FrameStatus =
   | "rejeitado_cocho_incompleto"
   | "falha_upload";
 
+/**
+ * Cocho cadastrado no aparelho (ver `services/cochoStorage.ts` e
+ * `screens/CochosScreen.tsx`) — selecionado obrigatoriamente antes de
+ * gravar. `id` é gerado no aparelho (nunca digitado pela pessoa, só o
+ * `nome` é dela), mesmo padrão de `utils/uuid.ts`.
+ */
+export interface Cocho {
+  id: string;
+  nome: string;
+  comprimentoCm: number;
+  larguraCm: number;
+  /**
+   * Do fundo até o ponto mais alto que o alimento alcançaria com o cocho
+   * cheio (lotação máxima) — não necessariamente a borda física do cocho.
+   */
+  alturaCm: number;
+  /**
+   * Rótulo livre do experimento/ano a que este cocho pertence (ex.: "2026"),
+   * separado do `id` — pra poder comparar desempenho entre cochos depois sem
+   * depender do identificador interno gerado no aparelho. Embutido no
+   * snapshot de cada captura (`cocho_experimento`) do mesmo jeito que as
+   * medidas, e também vira tag no Roboflow (ver `roboflow_client.py`).
+   */
+  experimento: string;
+}
+
 export interface CaptureFormData {
   pesoKg: string; // string no formulário (aceita vírgula/ponto), convertido antes do envio
   tipoAlimento?: string;
-  cochoId?: string;
+  /**
+   * Snapshot do cocho selecionado antes da gravação — embutido aqui (não só
+   * uma referência a um ID resolvida depois) de propósito: garante que a
+   * captura nunca fique sem as medidas do cocho, mesmo que o cadastro dele
+   * (ver `services/cochoSync.ts`) ainda não tenha sincronizado com o
+   * backend. Obrigatório: não existe mais captura sem cocho selecionado.
+   */
+  cocho: Cocho;
   observacoes?: string;
   /**
    * Nome de quem está gravando, configurado uma vez no Lobby (ver

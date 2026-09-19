@@ -11,6 +11,7 @@ def settings(tmp_path) -> Settings:
     return Settings(
         APP_ENV="test",
         BACKEND_API_KEY="test-backend-key",
+        ADMIN_API_KEY="test-admin-key",
         LOCAL_STORAGE_PATH=str(tmp_path / "storage"),
         ROBOFLOW_API_KEY="test-roboflow-key",
         ROBOFLOW_WORKSPACE="lucas-da-guia-costa",

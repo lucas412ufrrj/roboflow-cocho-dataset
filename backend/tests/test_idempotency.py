@@ -65,7 +65,16 @@ async def test_mesmo_capture_id_nao_reenvia_frames_ao_roboflow(settings, tmp_pat
         settings=settings,
     )
 
-    form = CaptureFormInput(peso_kg=15.0, tipo_alimento="Silagem")
+    form = CaptureFormInput(
+        peso_kg=15.0,
+        tipo_alimento="Silagem",
+        cocho_id="cocho-01",
+        cocho_nome="Cocho de teste",
+        cocho_comprimento_cm=200.0,
+        cocho_largura_cm=40.0,
+        cocho_altura_cm=30.0,
+        cocho_experimento="2026",
+    )
     capture_id = "capture-fixo-123"
     video_bytes = b"fake-mp4-bytes"
 
@@ -103,7 +112,15 @@ async def test_capture_ids_diferentes_geram_video_ids_diferentes(settings, tmp_p
         settings=settings,
     )
 
-    form = CaptureFormInput(peso_kg=8.0)
+    form = CaptureFormInput(
+        peso_kg=8.0,
+        cocho_id="cocho-01",
+        cocho_nome="Cocho de teste",
+        cocho_comprimento_cm=200.0,
+        cocho_largura_cm=40.0,
+        cocho_altura_cm=30.0,
+        cocho_experimento="2026",
+    )
 
     resposta_1 = await service.process_capture(
         capture_id="capture-A",

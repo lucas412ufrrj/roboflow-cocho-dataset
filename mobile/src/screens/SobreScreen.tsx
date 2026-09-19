@@ -1,8 +1,10 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
 
 import { CHANGELOG } from "@/data/changelog";
+import { obterChaveAdmin, salvarChaveAdmin } from "@/services/adminKey";
 
 function formatarDataHora(data: Date): string {
   const dois = (n: number) => String(n).padStart(2, "0");
@@ -43,6 +45,22 @@ export function SobreScreen() {
       ? formatarDataHora(Updates.createdAt)
       : "—";
 
+  // Chave de administrador (ver `services/adminKey.ts`): configurada só
+  // no(s) aparelho(s) de quem administra a lista de cochos. Sem ela,
+  // `CochosScreen` esconde cadastro/edição/exclusão — a pessoa só
+  // seleciona cochos já cadastrados.
+  const [chaveAdmin, setChaveAdmin] = useState("");
+  const [statusChave, setStatusChave] = useState<string | null>(null);
+
+  useEffect(() => {
+    obterChaveAdmin().then((chave) => setChaveAdmin(chave ?? ""));
+  }, []);
+
+  async function salvar() {
+    await salvarChaveAdmin(chaveAdmin);
+    setStatusChave(chaveAdmin.trim() ? "Salva neste aparelho." : "Removida deste aparelho.");
+  }
+
   return (
     <ScrollView
       style={styles.tela}
@@ -60,6 +78,31 @@ export function SobreScreen() {
         <Linha label="Canal" valor={Updates.channel ?? "—"} />
         <Linha label="Runtime version" valor={Updates.runtimeVersion ?? "—"} />
         {Updates.updateId && <Linha label="ID da atualização" valor={Updates.updateId.slice(0, 8)} />}
+      </View>
+
+      <View style={styles.bloco}>
+        <Text style={styles.blocoTitulo}>Administração</Text>
+        <Text style={styles.subtitulo}>
+          Chave de administrador — só quem administra a lista de cochos precisa configurar isto. Sem ela,
+          a tela de Cochos fica só leitura (selecionar cochos já cadastrados).
+        </Text>
+        <TextInput
+          style={styles.input}
+          value={chaveAdmin}
+          onChangeText={(texto) => {
+            setChaveAdmin(texto);
+            setStatusChave(null);
+          }}
+          placeholder="Chave de administrador"
+          placeholderTextColor="#8A8F98"
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Pressable style={styles.botaoSalvar} onPress={salvar} hitSlop={8}>
+          <Text style={styles.botaoSalvarTexto}>Salvar</Text>
+        </Pressable>
+        {statusChave && <Text style={styles.statusChave}>{statusChave}</Text>}
       </View>
     </ScrollView>
   );
@@ -81,4 +124,23 @@ const styles = StyleSheet.create({
   linha: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   linhaLabel: { color: "#8A8F98", fontSize: 13 },
   linhaValor: { color: "#F5F5F5", fontSize: 13, fontWeight: "600", flexShrink: 1, textAlign: "right" },
+  blocoTitulo: { color: "#F5F5F5", fontSize: 15, fontWeight: "700" },
+  input: {
+    backgroundColor: "#101820",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#F5F5F5",
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#2A3542",
+  },
+  botaoSalvar: {
+    backgroundColor: "#3D8BFD",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  botaoSalvarTexto: { color: "#0A1016", fontSize: 14, fontWeight: "700" },
+  statusChave: { color: "#8A8F98", fontSize: 12 },
 });

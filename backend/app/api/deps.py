@@ -7,6 +7,7 @@ from functools import lru_cache
 from app.config import get_settings
 from app.services.capture_service import CaptureService
 from app.services.chunked_upload_service import ChunkedUploadService
+from app.services.cocho_registry import CochoRegistry, FileCochoRegistry
 from app.services.idempotency import FileIdempotencyStore, IdempotencyStore
 from app.services.roboflow_client import RoboflowClient
 from app.services.trough_validator import get_trough_validator
@@ -18,6 +19,13 @@ def get_idempotency_store() -> IdempotencyStore:
     settings = get_settings()
     path = f"{settings.LOCAL_STORAGE_PATH}/_idempotency.json"
     return FileIdempotencyStore(path)
+
+
+@lru_cache
+def get_cocho_registry() -> CochoRegistry:
+    settings = get_settings()
+    path = f"{settings.LOCAL_STORAGE_PATH}/_cochos.json"
+    return FileCochoRegistry(path)
 
 
 @lru_cache

@@ -67,15 +67,13 @@ async function notificar(titulo: string, corpo: string): Promise<void> {
   }
 }
 
-function detalheCaptura(params: { pesoKg?: string; cochoId?: string }): string {
-  return [params.pesoKg ? `${params.pesoKg} kg` : null, params.cochoId ? `Cocho ${params.cochoId}` : null]
-    .filter(Boolean)
-    .join(" · ");
+function detalheCaptura(params: { pesoKg?: string; cochoNome?: string }): string {
+  return [params.pesoKg ? `${params.pesoKg} kg` : null, params.cochoNome || null].filter(Boolean).join(" · ");
 }
 
 export function notificarEnvioConcluido(params: {
   pesoKg?: string;
-  cochoId?: string;
+  cochoNome?: string;
   framesAceitos: number;
   totalFrames: number;
 }): void {
@@ -88,7 +86,7 @@ export function notificarEnvioConcluido(params: {
 
 export function notificarFalhaPersistente(params: {
   pesoKg?: string;
-  cochoId?: string;
+  cochoNome?: string;
   tentativas: number;
 }): void {
   const detalhe = detalheCaptura(params);

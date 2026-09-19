@@ -8,6 +8,12 @@ import { AnimatedDots } from "@/components/AnimatedDots";
  * atualização OTA (`eas update`). Some sozinho quando não há nada relevante
  * acontecendo. Depende do `expo-updates` já instalado — nenhuma dependência
  * nova.
+ *
+ * A aplicação em si (reiniciar o app com o JS novo) é automática — ver
+ * `AutoUpdateApplier.tsx` — então esse aviso só aparece por um instante
+ * enquanto isso acontece, a não ser que a pessoa esteja no meio de uma
+ * gravação/formulário/envio, caso em que fica esperando ela voltar pra uma
+ * tela parada.
  */
 export function UpdateBanner() {
   const insets = useSafeAreaInsets();
@@ -17,7 +23,7 @@ export function UpdateBanner() {
 
   const mensagem = isDownloading
     ? "Baixando atualização"
-    : "Atualização baixada. Será aplicada na próxima vez que o app for aberto.";
+    : "Atualização baixada. Será aplicada sozinha assim que você voltar pra tela inicial.";
 
   return (
     <View style={[styles.banner, { bottom: insets.bottom + 8 }]} pointerEvents="none">

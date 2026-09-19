@@ -77,7 +77,7 @@ function gerarTextoHistorico(historico: HistoricoEntry[]): string {
   const linhas = historico.map((item) => {
     const partes = [formatarDataHora(item.createdAt), STATUS_INFO[item.status].texto];
     if (item.pesoKg) partes.push(`${item.pesoKg} kg`);
-    if (item.cochoId) partes.push(`Cocho ${item.cochoId}`);
+    if (item.cochoNome) partes.push(item.cochoNome);
     if (item.status === "enviado" && item.totalFrames !== undefined) {
       const percentual = percentualAprovado(item.framesAceitos ?? 0, item.totalFrames);
       partes.push(`${item.framesAceitos}/${item.totalFrames} frames aprovados (${percentual}%)`);
@@ -145,7 +145,7 @@ function Linha({
 
         <View style={styles.detalhes}>
           {item.pesoKg && <Text style={styles.detalheTexto}>{item.pesoKg} kg</Text>}
-          {item.cochoId && <Text style={styles.detalheTexto}>Cocho {item.cochoId}</Text>}
+          {item.cochoNome && <Text style={styles.detalheTexto}>{item.cochoNome}</Text>}
         </View>
 
         {enviandoAgora && processando && (

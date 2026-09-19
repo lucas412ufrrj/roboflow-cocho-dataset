@@ -42,6 +42,7 @@ from app.services.focus import compute_focus_score, is_frame_sharp
 from app.services.frame_extractor import encode_jpeg, iter_frames
 from app.services.idempotency import IdempotencyStore
 from app.services.roboflow_client import RoboflowClient, RoboflowUploadError
+from app.services.scale_calculator import area_poligono_cm2, escala_cm_por_pixel
 from app.services.split import choose_split
 from app.services.trough_validator import TroughValidator
 from app.services.video_validation import (
@@ -355,6 +356,25 @@ class CaptureService:
                     )
                     continue
 
+                # Escala (cm por pixel) e área do próprio cocho, calculadas a
+                # partir da geometria que o modelo 1 já detectou pra validar
+                # "cocho completo" acima — nenhuma chamada extra ao Roboflow.
+                # Isso ainda não mede o alimento (esse modelo não existe
+                # ainda), mas já deixa a conta pronta e testada com dados
+                # reais: quando o modelo do alimento existir, a mesma
+                # `area_poligono_cm2` é reaproveitada, só trocando o polígono
+                # do cocho pelo do alimento.
+                escala = None
+                area_cocho_cm2 = None
+                if trough_result.trough_end_points_px is not None:
+                    escala = escala_cm_por_pixel(
+                        trough_result.trough_end_points_px[0],
+                        trough_result.trough_end_points_px[1],
+                        comprimento_real_cm=form.cocho_comprimento_cm,
+                    )
+                if escala is not None and trough_result.trough_polygon_px is not None:
+                    area_cocho_cm2 = area_poligono_cm2(trough_result.trough_polygon_px, escala)
+
                 metadata = FrameMetadata(
                     peso_kg=form.peso_kg,
                     video_id=video_id,
@@ -363,6 +383,13 @@ class CaptureService:
                     cocho_completo=True,
                     tipo_alimento=form.tipo_alimento,
                     cocho_id=form.cocho_id,
+                    cocho_nome=form.cocho_nome,
+                    cocho_comprimento_cm=form.cocho_comprimento_cm,
+                    cocho_largura_cm=form.cocho_largura_cm,
+                    cocho_altura_cm=form.cocho_altura_cm,
+                    cocho_experimento=form.cocho_experimento,
+                    escala_cm_por_pixel=escala,
+                    cocho_area_cm2=area_cocho_cm2,
                     observacoes=form.observacoes,
                     recorded_at=form.recorded_at,
                     operador=form.operador,

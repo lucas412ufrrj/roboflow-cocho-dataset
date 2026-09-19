@@ -35,7 +35,7 @@ import { gerarMiniatura } from "@/services/thumbnails";
 import { obterNomeOperador } from "@/services/operador";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Preview">;
-type CampoRevisao = "peso" | "tipoAlimento" | "cochoId" | "observacoes";
+type CampoRevisao = "peso" | "tipoAlimento" | "observacoes";
 
 /**
  * Linha compacta de revisão: mostra o valor com um link "editar" sublinhado
@@ -92,7 +92,6 @@ export function PreviewScreen({ navigation, route }: Props) {
   // formulário (o que, de qualquer forma, também exigiria regravar o vídeo).
   const [pesoKg, setPesoKg] = useState(form.pesoKg);
   const [tipoAlimento, setTipoAlimento] = useState(form.tipoAlimento ?? "");
-  const [cochoId, setCochoId] = useState(form.cochoId ?? "");
   const [observacoes, setObservacoes] = useState(form.observacoes ?? "");
   const [erroPeso, setErroPeso] = useState<string | null>(null);
 
@@ -128,7 +127,6 @@ export function PreviewScreen({ navigation, route }: Props) {
       setErroPeso(null);
     }
     if (campo === "tipoAlimento") setTipoAlimento((v) => v.trim());
-    if (campo === "cochoId") setCochoId((v) => v.trim());
     if (campo === "observacoes") setObservacoes((v) => v.trim());
     setCampoEditando(null);
   }
@@ -164,7 +162,10 @@ export function PreviewScreen({ navigation, route }: Props) {
     const formAtualizado: CaptureFormData = {
       pesoKg,
       tipoAlimento: tipoAlimento.trim() || undefined,
-      cochoId: cochoId.trim() || undefined,
+      // Não editável aqui: o cocho já foi selecionado antes de gravar (ver
+      // `CochosScreen.tsx` -> `CaptureFormScreen.tsx`) e mudar de cocho
+      // depois exigiria regravar o vídeo de qualquer forma.
+      cocho: form.cocho,
       observacoes: observacoes.trim() || undefined,
       operador,
     };
@@ -267,23 +268,12 @@ export function PreviewScreen({ navigation, route }: Props) {
               />
             </LinhaRevisao>
 
-            <LinhaRevisao
-              label="ID do cocho"
-              editando={campoEditando === "cochoId"}
-              valorExibicao={cochoId || "Não informado"}
-              temValor={!!cochoId}
-              onIniciarEdicao={() => setCampoEditando("cochoId")}
-              onSalvar={() => salvarCampo("cochoId")}
-            >
-              <TextInput
-                style={styles.input}
-                value={cochoId}
-                onChangeText={setCochoId}
-                placeholder="Ex.: cocho-07"
-                placeholderTextColor="#8A8F98"
-                autoFocus
-              />
-            </LinhaRevisao>
+            <View style={styles.infoLinha}>
+              <Text style={styles.infoLabel}>Cocho</Text>
+              <Text style={styles.infoValor} numberOfLines={1}>
+                {form.cocho.nome}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.observacoesBox}>
