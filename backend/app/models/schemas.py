@@ -6,17 +6,10 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Literal
-from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import get_settings
-
-# Fuso horário usado só pra exibição (ver `FrameMetadata.horario_gravacao`
-# abaixo) — a própria Lucas/equipe opera em horário de Brasília. `recorded_at`
-# continua guardado em epoch ms (UTC), sem depender de fuso nenhum; só a
-# versão "HH:MM" legível é convertida pra esse fuso.
-_FUSO_HORARIO_EXIBICAO = ZoneInfo("America/Sao_Paulo")
 
 
 def _round_decimal(v: float, casas: int) -> float:
@@ -261,16 +254,6 @@ class FrameMetadata(BaseModel):
     # uma janela de plausibilidade — se não passou nela, já é `None` antes de
     # chegar em `FrameMetadata`, nunca um valor claramente errado.
     recorded_at: int | None = None
-    # Derivado automaticamente de `recorded_at` pelo model_validator abaixo —
-    # nunca é passado diretamente por quem constrói `FrameMetadata`, pra não
-    # existir risco de os dois ficarem incoerentes entre si. Formato "HH:MM"
-    # (fuso America/Sao_Paulo — ver `_FUSO_HORARIO_EXIBICAO` no topo do
-    # arquivo), pensado pra ficar legível de relance no painel de Metadata do
-    # Roboflow, onde `recorded_at` (epoch ms) não diz nada a olho nu; o
-    # Roboflow aceita metadata em texto normalmente (não só números), então
-    # não há problema em subir como string. `None` sempre que `recorded_at`
-    # também for `None` (ausente, ou descartado por implausível).
-    horario_gravacao: str | None = None
     operador: str | None = None
 
     @field_validator(
@@ -299,13 +282,6 @@ class FrameMetadata(BaseModel):
         if v is None:
             return None
         return _round_decimal(v, 4)
-
-    @model_validator(mode="after")
-    def _derivar_horario_gravacao(self) -> "FrameMetadata":
-        if self.recorded_at is not None:
-            momento = datetime.fromtimestamp(self.recorded_at / 1000, tz=_FUSO_HORARIO_EXIBICAO)
-            self.horario_gravacao = momento.strftime("%H:%M")
-        return self
 
     def to_json_dict(self) -> dict:
         return self.model_dump(mode="json", exclude_none=False)

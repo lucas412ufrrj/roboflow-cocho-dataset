@@ -139,35 +139,3 @@ def test_metadata_limita_numeros_a_quatro_casas_decimais():
     assert meta.tipo_alimento_densidade_aparente_kg_l == 0.1235
     assert meta.escala_cm_por_pixel == 0.6733
     assert meta.cocho_area_cm2 == 6800.6667
-
-
-def test_horario_gravacao_e_derivado_de_recorded_at():
-    # 2026-01-15 15:30 em America/Sao_Paulo, convertido pra epoch ms (UTC) —
-    # ver `_derivar_horario_gravacao`/`_FUSO_HORARIO_EXIBICAO` em schemas.py.
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    momento = datetime(2026, 1, 15, 15, 30, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
-    meta = FrameMetadata(
-        peso_kg=10.0,
-        video_id="video-hora",
-        frame_time_ms=0,
-        focus_score=100.0,
-        cocho_completo=True,
-        recorded_at=int(momento.timestamp() * 1000),
-        **_COCHO_KWARGS,
-    )
-    assert meta.horario_gravacao == "15:30"
-
-
-def test_horario_gravacao_e_none_quando_recorded_at_e_none():
-    meta = FrameMetadata(
-        peso_kg=10.0,
-        video_id="video-sem-hora",
-        frame_time_ms=0,
-        focus_score=100.0,
-        cocho_completo=True,
-        recorded_at=None,
-        **_COCHO_KWARGS,
-    )
-    assert meta.horario_gravacao is None
