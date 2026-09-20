@@ -21,10 +21,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import random
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -127,14 +128,31 @@ class _EscritaColidiu(Exception):
     """Uso interno de GitHubTipoAlimentoRegistry: sinaliza HTTP 409 (sha desatualizado)."""
 
 
+def _resposta_e_transitoria(resp: httpx.Response) -> bool:
+    """Mesma lógica de `cocho_registry._resposta_e_transitoria` — ver
+    comentário lá para o raciocínio completo."""
+    if resp.status_code in (429, 500, 502, 503, 504):
+        return True
+    if resp.status_code == 403:
+        corpo = resp.text.lower()
+        return "rate limit" in corpo or "abuse" in corpo or "retry-after" in resp.headers
+    return False
+
+
 class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
     """
     Mesma lógica de `GitHubCochoRegistry` (ver `cocho_registry.py`), registro
     separado: guarda o registro de tipos de alimento como um JSON dentro do
-    próprio repositório git, via API REST do GitHub (Contents API).
+    próprio repositório git, via API REST do GitHub (Contents API) — inclui
+    o mesmo cache curto de leitura e a mesma tolerância a erro transitório
+    (rede, timeout, 5xx, rate limit) com espera crescente entre tentativas;
+    ver os comentários completos em `GitHubCochoRegistry`, não repetidos
+    campo a campo aqui.
     """
 
     _MAX_TENTATIVAS = 5
+    _CACHE_TTL_S = 5.0
+    _BACKOFF_BASE_S = 0.4
 
     def __init__(
         self,
@@ -168,6 +186,10 @@ class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
         self._own_client = client is None
         self._client = client or httpx.AsyncClient(timeout=15.0)
         self._lock = asyncio.Lock()
+        # (dados, sha, quando) da última leitura bem-sucedida — ver
+        # `_read_all_cached` em `GitHubCochoRegistry` para o raciocínio
+        # completo (idêntico aqui).
+        self._cache: tuple[dict[str, Any], str | None, float] | None = None
 
     async def aclose(self) -> None:
         if self._own_client:
@@ -176,10 +198,42 @@ class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
     def _contents_url(self) -> str:
         return f"{self._base_url}/repos/{self._repo}/contents/{self._path}"
 
+    def _invalidar_cache(self) -> None:
+        self._cache = None
+
+    async def _com_retry_transitorio(
+        self, fazer: Callable[[], Awaitable[httpx.Response]], *, tentativas: int = 3
+    ) -> httpx.Response:
+        """Mesma lógica de `GitHubCochoRegistry._com_retry_transitorio` — ver
+        comentário lá para o raciocínio completo."""
+        ultima_resposta: httpx.Response | None = None
+        ultimo_erro: Exception | None = None
+        for tentativa in range(tentativas):
+            try:
+                resp = await fazer()
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                ultimo_erro = exc
+            else:
+                if not _resposta_e_transitoria(resp):
+                    return resp
+                ultima_resposta = resp
+            if tentativa < tentativas - 1:
+                espera = self._BACKOFF_BASE_S * (2**tentativa) + random.uniform(0, 0.2)
+                await asyncio.sleep(espera)
+        if ultima_resposta is not None:
+            return ultima_resposta
+        raise RuntimeError(
+            "Falha de rede ao falar com a API do GitHub após várias tentativas."
+        ) from ultimo_erro
+
     async def _read_all(self) -> tuple[dict[str, Any], str | None]:
-        """Retorna (dados, sha). `sha` é None quando o arquivo ainda não existe."""
-        resp = await self._client.get(
-            self._contents_url(), headers=self._headers, params={"ref": self._branch}
+        """Leitura sempre fresca (sem cache) — ver
+        `GitHubCochoRegistry._read_all`. Retorna (dados, sha); `sha` é None
+        quando o arquivo ainda não existe."""
+        resp = await self._com_retry_transitorio(
+            lambda: self._client.get(
+                self._contents_url(), headers=self._headers, params={"ref": self._branch}
+            )
         )
         if resp.status_code == 404:
             return {}, None
@@ -193,6 +247,17 @@ class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
             dados = {}
         return dados, sha
 
+    async def _read_all_cached(self) -> tuple[dict[str, Any], str | None]:
+        """Mesma lógica de `GitHubCochoRegistry._read_all_cached`."""
+        agora = time.monotonic()
+        if self._cache is not None:
+            dados, sha, quando = self._cache
+            if agora - quando < self._CACHE_TTL_S:
+                return dados, sha
+        dados, sha = await self._read_all()
+        self._cache = (dados, sha, agora)
+        return dados, sha
+
     async def _write_all(self, dados: dict[str, Any], sha: str | None) -> None:
         payload: dict[str, Any] = {
             "message": "chore(tipos-alimento): atualiza registro",
@@ -203,12 +268,13 @@ class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
         }
         if sha is not None:
             payload["sha"] = sha
-        resp = await self._client.put(
-            self._contents_url(), headers=self._headers, json=payload
+        resp = await self._com_retry_transitorio(
+            lambda: self._client.put(self._contents_url(), headers=self._headers, json=payload)
         )
         if resp.status_code == 409:
             raise _EscritaColidiu()
         resp.raise_for_status()
+        self._invalidar_cache()
 
     async def _ler_modificar_escrever(self, modificar: Any) -> Any:
         erro: Exception | None = None
@@ -240,12 +306,12 @@ class GitHubTipoAlimentoRegistry(TipoAlimentoRegistry):
 
     async def get(self, tipo_alimento_id: str) -> dict[str, Any] | None:
         async with self._lock:
-            dados, _sha = await self._read_all()
+            dados, _sha = await self._read_all_cached()
             return dados.get(tipo_alimento_id)
 
     async def list_all(self) -> list[dict[str, Any]]:
         async with self._lock:
-            dados, _sha = await self._read_all()
+            dados, _sha = await self._read_all_cached()
             return list(dados.values())
 
     async def delete(self, tipo_alimento_id: str) -> None:

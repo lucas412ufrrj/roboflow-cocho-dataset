@@ -12,11 +12,19 @@
  * de tipos de alimento conhecidos, reaproveitável entre aparelhos.
  *
  * Roda pelos mesmos gatilhos de `syncEngine.sincronizarFila` (abertura do
- * app, retorno ao primeiro plano, wifi conectar) — ver `App.tsx`.
+ * app, retorno ao primeiro plano, wifi conectar) — ver `App.tsx` — e também
+ * logo após um cadastro/edição/exclusão, direto da tela (ver
+ * `TiposAlimentoScreen.salvarTipo`/`confirmarExclusao`).
+ *
+ * Usa `temConexaoConectada` (wifi OU dados móveis), não `temWifiConectado` —
+ * mesmo raciocínio de `cochoSync.ts` (ver comentário lá): o payload é um
+ * JSON pequeno, e represar isso esperando wifi é o que já causou cadastro
+ * perdido pra sempre ao desinstalar o app antes do wifi aparecer (ver
+ * decisão registrada no projeto Claude, 2026-09-20).
  */
 import { excluirTipoAlimentoNoBackend, registrarTipoAlimentoNoBackend } from "@/api/client";
 import { obterChaveAdmin } from "@/services/adminKey";
-import { temWifiConectado } from "@/services/syncEngine";
+import { temConexaoConectada } from "@/services/syncEngine";
 import {
   listarExclusoesPendentesTipoAlimento,
   listarTiposAlimentoNaoSincronizados,
@@ -30,7 +38,7 @@ export async function sincronizarTiposAlimento(): Promise<void> {
   if (sincronizacaoEmAndamento) return;
   sincronizacaoEmAndamento = true;
   try {
-    if (!(await temWifiConectado())) return;
+    if (!(await temConexaoConectada())) return;
 
     // Só quem tem a chave de administrador configurada neste aparelho (ver
     // `services/adminKey.ts`) consegue de fato escrever no backend — sem

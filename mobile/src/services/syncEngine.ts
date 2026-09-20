@@ -103,10 +103,27 @@ export function estaEnviandoAgora(captureId: string): boolean {
   return itemsEmEnvio.has(captureId);
 }
 
-/** Wifi de verdade — dados móveis nunca contam, mesmo com boa conexão. */
+/** Wifi de verdade — dados móveis nunca contam, mesmo com boa conexão. Usada
+ * só pelo envio de vídeo (`sincronizarFila`), que é grande e merece proteger
+ * o plano de dados da pessoa. */
 export async function temWifiConectado(): Promise<boolean> {
   const estado = await NetInfo.fetch();
   return estado.type === "wifi" && estado.isConnected === true;
+}
+
+/**
+ * Qualquer conexão de rede — wifi OU dados móveis. Ao contrário de
+ * `temWifiConectado` acima, usada pelo registro de cochos/tipos de alimento
+ * (`cochoSync.ts`/`tipoAlimentoSync.ts`): um JSON de poucas centenas de
+ * bytes não justifica esperar wifi como um vídeo justifica, e essa espera é
+ * exatamente o que já causou cadastro perdido pra sempre — reinstalar o app
+ * (ou só nunca mais passar por um wifi) antes do próximo gatilho apaga o
+ * item pendente do armazenamento local sem ele nunca ter chegado ao backend
+ * (ver decisão registrada no projeto Claude, 2026-09-20).
+ */
+export async function temConexaoConectada(): Promise<boolean> {
+  const estado = await NetInfo.fetch();
+  return estado.isConnected === true;
 }
 
 /**

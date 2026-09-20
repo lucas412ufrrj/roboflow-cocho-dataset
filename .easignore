@@ -1,0 +1,54 @@
+# Este arquivo substitui o .gitignore por completo para o empacotamento do
+# EAS Build (não é aditivo — por isso replica tudo que está em .gitignore
+# antes de acrescentar a regra nova no final). Ver
+# https://docs.expo.dev/build-reference/easignore/
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Env
+.env
+.env.local
+*.env
+!*.env.example
+
+# Storage temporário local
+backend/tmp_storage/*
+!backend/tmp_storage/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Ferramentas locais de assistente de código (não é parte do app)
+.agents/
+skills-lock.json
+
+# O build do app mobile (EAS) não depende de nada do backend — excluir a
+# pasta inteira evita que o empacotamento escaneie coisas como
+# backend/.pytest_cache ou backend/.venv, que é onde o Windows/OneDrive
+# vinha travando com EPERM (ver decisão registrada em 2026-09-20).
+backend/

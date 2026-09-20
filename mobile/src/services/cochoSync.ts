@@ -12,7 +12,19 @@
  * conhecidos, reaproveitável entre aparelhos.
  *
  * Roda pelos mesmos gatilhos de `syncEngine.sincronizarFila` (abertura do
- * app, retorno ao primeiro plano, wifi conectar) — ver `App.tsx`.
+ * app, retorno ao primeiro plano, wifi conectar) — ver `App.tsx` — e também
+ * logo após um cadastro/edição/exclusão, direto da tela (ver
+ * `CochosScreen.salvarCocho`/`confirmarExclusao`).
+ *
+ * Usa `temConexaoConectada` (wifi OU dados móveis), não `temWifiConectado`:
+ * o payload aqui é um JSON de poucas centenas de bytes, não um vídeo — não
+ * há razão pra represar isso esperando wifi como o envio de vídeo espera. Já
+ * fazia sentido esperar por wifi quando isso significava só "atualiza mais
+ * tarde"; o problema é que o cadastro fica só neste aparelho enquanto isso
+ * (`sincronizado: false`), e desinstalar o app (ou trocar de aparelho) antes
+ * do wifi aparecer apaga esse cadastro pra sempre, sem nunca ter chegado ao
+ * backend — foi exatamente isso que causou um cocho cadastrado "sumir" após
+ * reinstalar (ver decisão registrada no projeto Claude, 2026-09-20).
  */
 import { excluirCochoNoBackend, registrarCochoNoBackend } from "@/api/client";
 import { obterChaveAdmin } from "@/services/adminKey";
@@ -22,7 +34,7 @@ import {
   marcarCochoComoSincronizado,
   removerExclusaoPendente,
 } from "@/services/cochoStorage";
-import { temWifiConectado } from "@/services/syncEngine";
+import { temConexaoConectada } from "@/services/syncEngine";
 
 let sincronizacaoEmAndamento = false;
 
@@ -30,7 +42,7 @@ export async function sincronizarCochos(): Promise<void> {
   if (sincronizacaoEmAndamento) return;
   sincronizacaoEmAndamento = true;
   try {
-    if (!(await temWifiConectado())) return;
+    if (!(await temConexaoConectada())) return;
 
     // Só quem tem a chave de administrador configurada neste aparelho (ver
     // `services/adminKey.ts`) consegue de fato escrever no backend — sem

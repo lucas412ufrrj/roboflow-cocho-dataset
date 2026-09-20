@@ -21,7 +21,9 @@ import { obterChaveAdmin } from "@/services/adminKey";
 import {
   editarTipoAlimento,
   excluirTipoAlimento,
+  listarExclusoesPendentesTipoAlimento,
   listarTiposAlimento,
+  listarTiposAlimentoNaoSincronizados,
   mesclarComServidor,
   registrarTipoAlimento,
   type TipoAlimentoRegistrado,
@@ -43,6 +45,8 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
   // aparelho só-leitura: esconde "Registrar tipo de alimento" e o menu de
   // editar/excluir.
   const [chaveAdmin, setChaveAdmin] = useState<string | undefined>(undefined);
+  // Mesma lógica de `CochosScreen.tsx` — ver comentário lá.
+  const [pendentesSincronizar, setPendentesSincronizar] = useState(0);
 
   const [modalVisivel, setModalVisivel] = useState(false);
   // `null` = cadastrando um tipo novo; preenchido = editando esse tipo.
@@ -54,11 +58,19 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
   // Tipo de alimento cujo menu de opções (editar/excluir) está aberto no momento.
   const [menuAberto, setMenuAberto] = useState<TipoAlimentoRegistrado | null>(null);
 
+  // Mesma lógica de `CochosScreen.atualizarPendentes` — ver comentário lá.
+  const atualizarPendentes = useCallback(() => {
+    Promise.all([listarTiposAlimentoNaoSincronizados(), listarExclusoesPendentesTipoAlimento()]).then(
+      ([naoSincronizados, exclusoes]) => setPendentesSincronizar(naoSincronizados.length + exclusoes.length)
+    );
+  }, []);
+
   const carregarTipos = useCallback(() => {
     obterChaveAdmin().then(setChaveAdmin);
     listarTiposAlimento()
       .then(setTipos)
       .finally(() => setCarregando(false));
+    atualizarPendentes();
     // Busca a lista compartilhada com a equipe em segundo plano, sem
     // atrasar a exibição da cópia local (uso offline em campo). Falha de
     // rede aqui é silenciosa — a pessoa continua vendo a última cópia local
@@ -68,7 +80,7 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
       .then((doServidor) => mesclarComServidor(doServidor))
       .then(setTipos)
       .catch(() => undefined);
-  }, []);
+  }, [atualizarPendentes]);
 
   // Recarrega toda vez que a tela ganha foco — cobre tanto o retorno de uma
   // nova captura quanto qualquer cadastro/edição/exclusão feita no próprio
@@ -111,7 +123,9 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
             setTipos((atual) => atual.filter((item) => item.id !== tipo.id));
             // Silencioso de propósito (ver `tipoAlimentoSync.ts`) — nunca
             // bloqueia nem mostra erro se falhar.
-            sincronizarTiposAlimento().catch(() => undefined);
+            sincronizarTiposAlimento()
+              .catch(() => undefined)
+              .finally(atualizarPendentes);
           },
         },
       ]
@@ -145,7 +159,9 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
     setModalVisivel(false);
     // Silencioso de propósito (ver `tipoAlimentoSync.ts`) — nunca bloqueia o
     // fluxo de cadastro nem mostra erro se falhar.
-    sincronizarTiposAlimento().catch(() => undefined);
+    sincronizarTiposAlimento()
+      .catch(() => undefined)
+      .finally(atualizarPendentes);
   }
 
   return (
@@ -184,6 +200,14 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
           </View>
         )}
       />
+
+      {chaveAdmin && pendentesSincronizar > 0 && (
+        <Text style={styles.avisoPendente}>
+          {pendentesSincronizar === 1
+            ? "1 alteração ainda não sincronizou com o servidor. Evite desinstalar o app ou trocar de aparelho antes disso."
+            : `${pendentesSincronizar} alterações ainda não sincronizaram com o servidor. Evite desinstalar o app ou trocar de aparelho antes disso.`}
+        </Text>
+      )}
 
       {chaveAdmin && (
         <Pressable style={styles.botaoRegistrar} onPress={abrirModalNovo}>
@@ -305,6 +329,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   botaoRegistrarTexto: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  avisoPendente: {
+    color: "#F5A623",
+    fontSize: 12,
+    marginTop: 12,
+    textAlign: "center",
+  },
   modalFundo: {
     flex: 1,
     backgroundColor: "#00000099",

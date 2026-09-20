@@ -103,8 +103,121 @@ async def test_get_e_list_all_leem_sem_escrever():
     nomes = {r["nome"] for r in await registry.list_all()}
     assert nomes == {"Cocho A", "Cocho B"}
 
-    assert get_route.call_count == 3
+    # Cache curto de leitura (ver `_read_all_cached`): as três chamadas acima
+    # aconteceram praticamente no mesmo instante, então só a primeira bateu
+    # de verdade na API do GitHub — as outras duas reaproveitaram o
+    # resultado em memória, exatamente o comportamento que protege contra
+    # uma rajada de GETs quase simultâneos (várias pessoas abrindo o app
+    # pela primeira vez de uma vez).
+    assert get_route.call_count == 1
     assert not put_route.called
+    await registry.aclose()
+
+
+async def _sem_espera(*_args, **_kwargs) -> None:
+    """Substitui `asyncio.sleep` nos testes de retry — sem isso, o backoff
+    real (ver `_BACKOFF_BASE_S`) deixaria esses testes lentos de verdade."""
+
+
+@respx.mock
+async def test_cache_de_leitura_expira_apos_o_ttl(monkeypatch):
+    dados = {"cocho-1": {"nome": "Cocho A", "criado_em": 1}}
+    get_route = respx.get(CONTENTS_URL).mock(return_value=_content_response(dados, sha="sha-x"))
+
+    registry = _make_registry()
+    relogio = {"agora": 1_000.0}
+    monkeypatch.setattr("app.services.cocho_registry.time.monotonic", lambda: relogio["agora"])
+
+    await registry.get("cocho-1")
+    assert get_route.call_count == 1
+
+    # Ainda dentro do TTL: reaproveita o cache, não bate no GitHub de novo.
+    relogio["agora"] += GitHubCochoRegistry._CACHE_TTL_S - 0.5
+    await registry.get("cocho-1")
+    assert get_route.call_count == 1
+
+    # Passou do TTL: lê de novo de verdade.
+    relogio["agora"] += 1.0
+    await registry.get("cocho-1")
+    assert get_route.call_count == 2
+    await registry.aclose()
+
+
+@respx.mock
+async def test_escrita_bem_sucedida_invalida_o_cache_de_leitura():
+    respx.get(CONTENTS_URL).mock(
+        side_effect=[
+            _content_response({}, sha="sha-1"),  # list_all() inicial (cache vazio)
+            _content_response({}, sha="sha-1"),  # leitura interna do upsert
+            _content_response(
+                {"cocho-1": {"nome": "Cocho A", "criado_em": 1}}, sha="sha-2"
+            ),  # list_all() após a escrita invalidar o cache
+        ]
+    )
+    respx.put(CONTENTS_URL).mock(return_value=httpx.Response(200, json={"content": {"sha": "sha-2"}}))
+
+    registry = _make_registry()
+    assert await registry.list_all() == []
+    await registry.upsert("cocho-1", {"nome": "Cocho A"})
+    # Sem a invalidação (`_write_all` -> `_invalidar_cache`), isso ainda
+    # devolveria a lista vazia guardada em cache antes da escrita.
+    nomes = {r["nome"] for r in await registry.list_all()}
+    assert nomes == {"Cocho A"}
+    await registry.aclose()
+
+
+@respx.mock
+async def test_erro_5xx_transitorio_no_get_e_tentado_de_novo(monkeypatch):
+    monkeypatch.setattr("app.services.cocho_registry.asyncio.sleep", _sem_espera)
+    dados = {"cocho-1": {"nome": "Cocho A", "criado_em": 1}}
+    get_route = respx.get(CONTENTS_URL).mock(
+        side_effect=[
+            httpx.Response(503, text="service unavailable"),
+            _content_response(dados, sha="sha-1"),
+        ]
+    )
+
+    registry = _make_registry()
+    registro = await registry.get("cocho-1")
+
+    assert registro["nome"] == "Cocho A"
+    assert get_route.call_count == 2
+    await registry.aclose()
+
+
+@respx.mock
+async def test_403_de_rate_limit_e_tratado_como_transitorio(monkeypatch):
+    monkeypatch.setattr("app.services.cocho_registry.asyncio.sleep", _sem_espera)
+    dados = {"cocho-1": {"nome": "Cocho A", "criado_em": 1}}
+    get_route = respx.get(CONTENTS_URL).mock(
+        side_effect=[
+            httpx.Response(403, json={"message": "API rate limit exceeded for user"}),
+            _content_response(dados, sha="sha-1"),
+        ]
+    )
+
+    registry = _make_registry()
+    registro = await registry.get("cocho-1")
+
+    assert registro["nome"] == "Cocho A"
+    assert get_route.call_count == 2
+    await registry.aclose()
+
+
+@respx.mock
+async def test_403_de_credencial_invalida_nao_e_tratado_como_transitorio():
+    # "Bad credentials" não tem nenhuma das palavras que
+    # `_resposta_e_transitoria` reconhece como rate limit/abuse detection —
+    # insistir não resolveria nada, então propaga na primeira tentativa.
+    get_route = respx.get(CONTENTS_URL).mock(
+        return_value=httpx.Response(403, json={"message": "Bad credentials"})
+    )
+
+    registry = _make_registry()
+    with pytest.raises(httpx.HTTPStatusError):
+        await registry.get("cocho-1")
+
+    assert get_route.call_count == 1
     await registry.aclose()
 
 

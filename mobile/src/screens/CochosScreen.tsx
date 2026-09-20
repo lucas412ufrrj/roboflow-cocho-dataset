@@ -22,6 +22,8 @@ import {
   editarCocho,
   excluirCocho,
   listarCochos,
+  listarCochosNaoSincronizados,
+  listarExclusoesPendentes,
   mesclarComServidor,
   registrarCocho,
   type CochoRegistrado,
@@ -39,6 +41,12 @@ export function CochosScreen({ navigation }: Props) {
   // `screens/SobreScreen.tsx` e `services/adminKey.ts`). `undefined` =
   // aparelho só-leitura: esconde "Registrar cocho" e o menu de editar/excluir.
   const [chaveAdmin, setChaveAdmin] = useState<string | undefined>(undefined);
+  // Quantos cadastros/exclusões deste aparelho ainda não chegaram ao
+  // backend (ver `cochoSync.ts`). Só importa pra quem tem a chave de admin —
+  // é quem pode perder esse cadastro de verdade se desinstalar o app ou
+  // trocar de aparelho antes da sincronização terminar (ver decisão
+  // registrada no projeto Claude, 2026-09-20).
+  const [pendentesSincronizar, setPendentesSincronizar] = useState(0);
 
   const [modalVisivel, setModalVisivel] = useState(false);
   // `null` = cadastrando um cocho novo; preenchido = editando esse cocho.
@@ -56,11 +64,21 @@ export function CochosScreen({ navigation }: Props) {
   // Cocho cujo menu de opções (editar/excluir) está aberto no momento.
   const [menuAberto, setMenuAberto] = useState<CochoRegistrado | null>(null);
 
+  // Só recalcula a contagem (não a lista principal) — chamada de novo depois
+  // de qualquer sincronização em segundo plano, pra o aviso sumir assim que
+  // o cadastro pendente for confirmado no backend.
+  const atualizarPendentes = useCallback(() => {
+    Promise.all([listarCochosNaoSincronizados(), listarExclusoesPendentes()]).then(
+      ([naoSincronizados, exclusoes]) => setPendentesSincronizar(naoSincronizados.length + exclusoes.length)
+    );
+  }, []);
+
   const carregarCochos = useCallback(() => {
     obterChaveAdmin().then(setChaveAdmin);
     listarCochos()
       .then(setCochos)
       .finally(() => setCarregando(false));
+    atualizarPendentes();
     // Busca a lista compartilhada com a equipe em segundo plano, sem
     // atrasar a exibição da cópia local (uso offline em campo). Falha de
     // rede aqui é silenciosa — a pessoa continua vendo a última cópia local
@@ -70,7 +88,7 @@ export function CochosScreen({ navigation }: Props) {
       .then((doServidor) => mesclarComServidor(doServidor))
       .then(setCochos)
       .catch(() => undefined);
-  }, []);
+  }, [atualizarPendentes]);
 
   // Recarrega toda vez que a aba ganha foco — cobre tanto o retorno de uma
   // nova captura quanto qualquer cadastro/edição/exclusão feita no próprio
@@ -119,7 +137,9 @@ export function CochosScreen({ navigation }: Props) {
             setCochos((atual) => atual.filter((item) => item.id !== cocho.id));
             // Silencioso de propósito (ver `cochoSync.ts`) — nunca bloqueia
             // nem mostra erro se falhar.
-            sincronizarCochos().catch(() => undefined);
+            sincronizarCochos()
+              .catch(() => undefined)
+              .finally(atualizarPendentes);
           },
         },
       ]
@@ -160,7 +180,9 @@ export function CochosScreen({ navigation }: Props) {
     setModalVisivel(false);
     // Silencioso de propósito (ver `cochoSync.ts`) — nunca bloqueia o fluxo
     // de cadastro nem mostra erro se falhar.
-    sincronizarCochos().catch(() => undefined);
+    sincronizarCochos()
+      .catch(() => undefined)
+      .finally(atualizarPendentes);
   }
 
   return (
@@ -202,6 +224,14 @@ export function CochosScreen({ navigation }: Props) {
           </View>
         )}
       />
+
+      {chaveAdmin && pendentesSincronizar > 0 && (
+        <Text style={styles.avisoPendente}>
+          {pendentesSincronizar === 1
+            ? "1 alteração ainda não sincronizou com o servidor. Evite desinstalar o app ou trocar de aparelho antes disso."
+            : `${pendentesSincronizar} alterações ainda não sincronizaram com o servidor. Evite desinstalar o app ou trocar de aparelho antes disso.`}
+        </Text>
+      )}
 
       {chaveAdmin && (
         <Pressable style={styles.botaoRegistrar} onPress={abrirModalNovo}>
@@ -358,6 +388,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   botaoRegistrarTexto: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  avisoPendente: {
+    color: "#F5A623",
+    fontSize: 12,
+    marginTop: 12,
+    textAlign: "center",
+  },
   modalFundo: {
     flex: 1,
     backgroundColor: "#00000099",
