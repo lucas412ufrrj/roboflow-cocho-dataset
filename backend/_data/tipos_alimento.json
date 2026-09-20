@@ -4,11 +4,5 @@
     "nome": "Ebej",
     "densidade_aparente_kg_l": 1.2,
     "criado_em": 1789927527427
-  },
-  "ef5bdaba-e045-48b3-9052-fe71f7b6cc57": {
-    "tipo_alimento_id": "ef5bdaba-e045-48b3-9052-fe71f7b6cc57",
-    "nome": "Teste",
-    "densidade_aparente_kg_l": 1.2,
-    "criado_em": 1789927586314
   }
 }
