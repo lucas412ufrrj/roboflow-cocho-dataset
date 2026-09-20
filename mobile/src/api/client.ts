@@ -69,7 +69,16 @@ export interface CochoPayload {
   experimento: string;
 }
 
-const TIMEOUT_COCHO_MS = 15 * 1000;
+// 60s (não os 15s de antes): registro de cocho é uma chamada silenciosa em
+// segundo plano, não bloqueia nenhuma tela — não custa nada esperar mais.
+// Vale a pena porque o backend pode estar acordando de hibernação (Render
+// plano free) ou no meio de um redeploy disparado por outra escrita no
+// mesmo registro (ver decisão registrada no projeto Claude, 2026-09-20:
+// cadastrar um cocho enquanto o backend estava fora do ar por causa da
+// escrita do tipo de alimento é o que causou um cadastro nunca chegar a
+// virar commit no GitHub). 15s não dava tempo de sobreviver a nenhum dos
+// dois casos.
+const TIMEOUT_COCHO_MS = 60 * 1000;
 
 /**
  * Registra (ou reenvia, se já existir) um cocho no backend — ver
@@ -181,7 +190,8 @@ export interface TipoAlimentoPayload {
   densidadeAparenteKgL: number;
 }
 
-const TIMEOUT_TIPO_ALIMENTO_MS = 15 * 1000;
+// Mesmo raciocínio de TIMEOUT_COCHO_MS acima — ver comentário lá.
+const TIMEOUT_TIPO_ALIMENTO_MS = 60 * 1000;
 
 /**
  * Registra (ou reenvia, se já existir) um tipo de alimento no backend — ver

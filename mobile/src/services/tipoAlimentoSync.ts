@@ -21,6 +21,11 @@
  * JSON pequeno, e represar isso esperando wifi é o que já causou cadastro
  * perdido pra sempre ao desinstalar o app antes do wifi aparecer (ver
  * decisão registrada no projeto Claude, 2026-09-20).
+ *
+ * Cada item tenta `TENTATIVAS_IMEDIATAS` vezes antes de desistir e deixar
+ * pro próximo gatilho externo — mesmo raciocínio de `cochoSync.ts` (ver
+ * comentário lá): sobrevive a um soluço passageiro do backend sem depender
+ * da pessoa reabrir o app a tempo.
  */
 import { excluirTipoAlimentoNoBackend, registrarTipoAlimentoNoBackend } from "@/api/client";
 import { obterChaveAdmin } from "@/services/adminKey";
@@ -33,6 +38,27 @@ import {
 } from "@/services/tipoAlimentoStorage";
 
 let sincronizacaoEmAndamento = false;
+
+const TENTATIVAS_IMEDIATAS = 2;
+const ESPERA_ENTRE_TENTATIVAS_MS = 4000;
+
+function aguardar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Mesma lógica de `cochoSync.comTentativasImediatas` — ver comentário lá. */
+async function comTentativasImediatas(fazer: () => Promise<void>): Promise<void> {
+  for (let tentativa = 1; tentativa <= TENTATIVAS_IMEDIATAS; tentativa++) {
+    try {
+      await fazer();
+      return;
+    } catch {
+      if (tentativa < TENTATIVAS_IMEDIATAS) {
+        await aguardar(ESPERA_ENTRE_TENTATIVAS_MS);
+      }
+    }
+  }
+}
 
 export async function sincronizarTiposAlimento(): Promise<void> {
   if (sincronizacaoEmAndamento) return;
@@ -48,25 +74,20 @@ export async function sincronizarTiposAlimento(): Promise<void> {
 
     const pendentes = await listarTiposAlimentoNaoSincronizados();
     for (const tipo of pendentes) {
-      try {
+      await comTentativasImediatas(async () => {
         await registrarTipoAlimentoNoBackend(tipo, chaveAdmin);
         await marcarTipoAlimentoComoSincronizado(tipo.id);
-      } catch {
-        // Silencioso de propósito (ver comentário acima) — tenta de novo no
-        // próximo gatilho, sem acumular erro nem avisar ninguém.
-      }
+      });
     }
 
     // Tipos de alimento excluídos localmente que já tinham sincronizado
     // antes — ver `tipoAlimentoStorage.excluirTipoAlimento`.
     const exclusoesPendentes = await listarExclusoesPendentesTipoAlimento();
     for (const id of exclusoesPendentes) {
-      try {
+      await comTentativasImediatas(async () => {
         await excluirTipoAlimentoNoBackend(id, chaveAdmin);
         await removerExclusaoPendenteTipoAlimento(id);
-      } catch {
-        // Mesma lógica silenciosa acima.
-      }
+      });
     }
   } finally {
     sincronizacaoEmAndamento = false;
