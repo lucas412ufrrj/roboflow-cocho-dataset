@@ -26,6 +26,18 @@
  * pro próximo gatilho externo — mesmo raciocínio de `cochoSync.ts` (ver
  * comentário lá): sobrevive a um soluço passageiro do backend sem depender
  * da pessoa reabrir o app a tempo.
+ *
+ * `subscribeSincronizacaoTiposAlimento` avisa toda vez que uma passada
+ * termina, qualquer que tenha sido o gatilho — mesma lógica de
+ * `cochoSync.subscribeSincronizacaoCochos` (ver comentário lá), pro aviso de
+ * pendência em `TiposAlimentoScreen.tsx` não ficar preso desatualizado
+ * quando a tela já está aberta e a sincronização vem de um gatilho global.
+ *
+ * Com aparelho conectado, o cadastro deve sair direto, sem esperar o
+ * próximo gatilho externo — mesma lógica de `cochoSync.ts` (ver comentário
+ * lá): uma chamada concorrente enquanto outra passada já roda não é
+ * descartada, pede uma rodada extra (`novaRodadaPendente`) assim que a
+ * atual terminar.
  */
 import { excluirTipoAlimentoNoBackend, registrarTipoAlimentoNoBackend } from "@/api/client";
 import { obterChaveAdmin } from "@/services/adminKey";
@@ -38,9 +50,23 @@ import {
 } from "@/services/tipoAlimentoStorage";
 
 let sincronizacaoEmAndamento = false;
+let novaRodadaPendente = false;
 
 const TENTATIVAS_IMEDIATAS = 2;
 const ESPERA_ENTRE_TENTATIVAS_MS = 4000;
+
+type Ouvinte = () => void;
+const ouvintes = new Set<Ouvinte>();
+
+/** Mesma lógica de `cochoSync.subscribeSincronizacaoCochos` — ver comentário lá. */
+export function subscribeSincronizacaoTiposAlimento(ouvinte: Ouvinte): () => void {
+  ouvintes.add(ouvinte);
+  return () => ouvintes.delete(ouvinte);
+}
+
+function notificarMudanca() {
+  ouvintes.forEach((ouvinte) => ouvinte());
+}
 
 function aguardar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,35 +87,44 @@ async function comTentativasImediatas(fazer: () => Promise<void>): Promise<void>
 }
 
 export async function sincronizarTiposAlimento(): Promise<void> {
-  if (sincronizacaoEmAndamento) return;
+  if (sincronizacaoEmAndamento) {
+    // Ver comentário no topo do arquivo — não descarta, pede uma rodada
+    // extra assim que a atual terminar.
+    novaRodadaPendente = true;
+    return;
+  }
   sincronizacaoEmAndamento = true;
   try {
-    if (!(await temConexaoConectada())) return;
+    do {
+      novaRodadaPendente = false;
+      if (!(await temConexaoConectada())) return;
 
-    // Só quem tem a chave de administrador configurada neste aparelho (ver
-    // `services/adminKey.ts`) consegue de fato escrever no backend — sem
-    // ela o backend responde 401 e cada tentativa abaixo cai no catch
-    // silencioso, sem diferença de comportamento visível.
-    const chaveAdmin = await obterChaveAdmin();
+      // Só quem tem a chave de administrador configurada neste aparelho
+      // (ver `services/adminKey.ts`) consegue de fato escrever no backend —
+      // sem ela o backend responde 401 e cada tentativa abaixo cai no catch
+      // silencioso, sem diferença de comportamento visível.
+      const chaveAdmin = await obterChaveAdmin();
 
-    const pendentes = await listarTiposAlimentoNaoSincronizados();
-    for (const tipo of pendentes) {
-      await comTentativasImediatas(async () => {
-        await registrarTipoAlimentoNoBackend(tipo, chaveAdmin);
-        await marcarTipoAlimentoComoSincronizado(tipo.id);
-      });
-    }
+      const pendentes = await listarTiposAlimentoNaoSincronizados();
+      for (const tipo of pendentes) {
+        await comTentativasImediatas(async () => {
+          await registrarTipoAlimentoNoBackend(tipo, chaveAdmin);
+          await marcarTipoAlimentoComoSincronizado(tipo.id);
+        });
+      }
 
-    // Tipos de alimento excluídos localmente que já tinham sincronizado
-    // antes — ver `tipoAlimentoStorage.excluirTipoAlimento`.
-    const exclusoesPendentes = await listarExclusoesPendentesTipoAlimento();
-    for (const id of exclusoesPendentes) {
-      await comTentativasImediatas(async () => {
-        await excluirTipoAlimentoNoBackend(id, chaveAdmin);
-        await removerExclusaoPendenteTipoAlimento(id);
-      });
-    }
+      // Tipos de alimento excluídos localmente que já tinham sincronizado
+      // antes — ver `tipoAlimentoStorage.excluirTipoAlimento`.
+      const exclusoesPendentes = await listarExclusoesPendentesTipoAlimento();
+      for (const id of exclusoesPendentes) {
+        await comTentativasImediatas(async () => {
+          await excluirTipoAlimentoNoBackend(id, chaveAdmin);
+          await removerExclusaoPendenteTipoAlimento(id);
+        });
+      }
+    } while (novaRodadaPendente);
   } finally {
     sincronizacaoEmAndamento = false;
+    notificarMudanca();
   }
 }

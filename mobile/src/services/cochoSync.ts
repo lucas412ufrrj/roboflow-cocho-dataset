@@ -35,6 +35,29 @@
  * próximo gatilho, o cadastro se perde — foi exatamente esse encadeamento
  * que fez um cocho nunca chegar a virar commit no GitHub (ver decisão
  * registrada no projeto Claude, 2026-09-20).
+ *
+ * `subscribeSincronizacaoCochos` avisa quem quiser (hoje só
+ * `CochosScreen.tsx`, pro aviso de "N pendentes") toda vez que uma passada
+ * de sincronização termina, não importa qual gatilho a disparou — sem isso,
+ * uma sincronização disparada pelos gatilhos globais do `App.tsx` (abrir o
+ * app, voltar ao primeiro plano, wifi conectar) enquanto a tela de Cochos já
+ * estava aberta e em foco nunca atualizava o aviso, que ficava preso no
+ * valor de quando a tela ganhou foco pela última vez — mesmo com o cadastro
+ * já sincronizado de verdade (ver decisão registrada no projeto Claude,
+ * 2026-09-20).
+ *
+ * Com aparelho conectado, o cadastro deve sair direto (sem esperar o
+ * próximo gatilho externo) — a fila/retry acima é só a rede de segurança
+ * pra quando o aparelho está sem sinal. Por isso, se `sincronizarCochos` é
+ * chamado enquanto outra passada já está rodando (ex.: o gatilho global do
+ * `App.tsx` ainda processando um item lento, bem quando `salvarCocho`
+ * também chama esta função), a chamada nova não é só descartada: marca
+ * `novaRodadaPendente` pra passada em andamento rodar de novo assim que
+ * terminar, relendo `listarCochosNaoSincronizados()` do zero. Sem isso, o
+ * cadastro que motivou essa segunda chamada só seria enviado no PRÓXIMO
+ * gatilho externo, mesmo com internet o tempo todo — o oposto do que deve
+ * acontecer quando o aparelho está conectado (ver decisão registrada no
+ * projeto Claude, 2026-09-20).
  */
 import { excluirCochoNoBackend, registrarCochoNoBackend } from "@/api/client";
 import { obterChaveAdmin } from "@/services/adminKey";
@@ -47,9 +70,25 @@ import {
 import { temConexaoConectada } from "@/services/syncEngine";
 
 let sincronizacaoEmAndamento = false;
+let novaRodadaPendente = false;
 
 const TENTATIVAS_IMEDIATAS = 2;
 const ESPERA_ENTRE_TENTATIVAS_MS = 4000;
+
+type Ouvinte = () => void;
+const ouvintes = new Set<Ouvinte>();
+
+/** Avisa toda vez que uma passada de `sincronizarCochos` termina, qualquer
+ * que tenha sido o gatilho. Usado pra manter o aviso de pendência em
+ * `CochosScreen.tsx` sempre atualizado, mesmo com a tela já aberta. */
+export function subscribeSincronizacaoCochos(ouvinte: Ouvinte): () => void {
+  ouvintes.add(ouvinte);
+  return () => ouvintes.delete(ouvinte);
+}
+
+function notificarMudanca() {
+  ouvintes.forEach((ouvinte) => ouvinte());
+}
 
 function aguardar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,35 +113,44 @@ async function comTentativasImediatas(fazer: () => Promise<void>): Promise<void>
 }
 
 export async function sincronizarCochos(): Promise<void> {
-  if (sincronizacaoEmAndamento) return;
+  if (sincronizacaoEmAndamento) {
+    // Ver comentário no topo do arquivo — não descarta, pede uma rodada
+    // extra assim que a atual terminar.
+    novaRodadaPendente = true;
+    return;
+  }
   sincronizacaoEmAndamento = true;
   try {
-    if (!(await temConexaoConectada())) return;
+    do {
+      novaRodadaPendente = false;
+      if (!(await temConexaoConectada())) return;
 
-    // Só quem tem a chave de administrador configurada neste aparelho (ver
-    // `services/adminKey.ts`) consegue de fato escrever no backend — sem
-    // ela o backend responde 401 e cada tentativa abaixo cai no catch
-    // silencioso, sem diferença de comportamento visível.
-    const chaveAdmin = await obterChaveAdmin();
+      // Só quem tem a chave de administrador configurada neste aparelho
+      // (ver `services/adminKey.ts`) consegue de fato escrever no backend —
+      // sem ela o backend responde 401 e cada tentativa abaixo cai no catch
+      // silencioso, sem diferença de comportamento visível.
+      const chaveAdmin = await obterChaveAdmin();
 
-    const pendentes = await listarCochosNaoSincronizados();
-    for (const cocho of pendentes) {
-      await comTentativasImediatas(async () => {
-        await registrarCochoNoBackend(cocho, chaveAdmin);
-        await marcarCochoComoSincronizado(cocho.id);
-      });
-    }
+      const pendentes = await listarCochosNaoSincronizados();
+      for (const cocho of pendentes) {
+        await comTentativasImediatas(async () => {
+          await registrarCochoNoBackend(cocho, chaveAdmin);
+          await marcarCochoComoSincronizado(cocho.id);
+        });
+      }
 
-    // Cochos excluídos localmente que já tinham sincronizado antes — ver
-    // `cochoStorage.excluirCocho`.
-    const exclusoesPendentes = await listarExclusoesPendentes();
-    for (const id of exclusoesPendentes) {
-      await comTentativasImediatas(async () => {
-        await excluirCochoNoBackend(id, chaveAdmin);
-        await removerExclusaoPendente(id);
-      });
-    }
+      // Cochos excluídos localmente que já tinham sincronizado antes — ver
+      // `cochoStorage.excluirCocho`.
+      const exclusoesPendentes = await listarExclusoesPendentes();
+      for (const id of exclusoesPendentes) {
+        await comTentativasImediatas(async () => {
+          await excluirCochoNoBackend(id, chaveAdmin);
+          await removerExclusaoPendente(id);
+        });
+      }
+    } while (novaRodadaPendente);
   } finally {
     sincronizacaoEmAndamento = false;
+    notificarMudanca();
   }
 }

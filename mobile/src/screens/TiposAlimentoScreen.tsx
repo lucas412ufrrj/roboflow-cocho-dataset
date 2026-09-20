@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -28,7 +28,7 @@ import {
   registrarTipoAlimento,
   type TipoAlimentoRegistrado,
 } from "@/services/tipoAlimentoStorage";
-import { sincronizarTiposAlimento } from "@/services/tipoAlimentoSync";
+import { sincronizarTiposAlimento, subscribeSincronizacaoTiposAlimento } from "@/services/tipoAlimentoSync";
 import { parsePesoInput } from "@/utils/peso";
 
 // Mesma lógica de admin/sincronização de `CochosScreen.tsx` — ver comentários
@@ -81,6 +81,10 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
       .then(setTipos)
       .catch(() => undefined);
   }, [atualizarPendentes]);
+
+  // Mantém o aviso de pendência atualizado com a tela já aberta e em foco —
+  // mesma lógica de `CochosScreen.tsx`, ver comentário lá.
+  useEffect(() => subscribeSincronizacaoTiposAlimento(atualizarPendentes), [atualizarPendentes]);
 
   // Recarrega toda vez que a tela ganha foco — cobre tanto o retorno de uma
   // nova captura quanto qualquer cadastro/edição/exclusão feita no próprio

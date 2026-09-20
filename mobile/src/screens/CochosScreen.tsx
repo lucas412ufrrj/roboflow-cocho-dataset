@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -28,7 +28,7 @@ import {
   registrarCocho,
   type CochoRegistrado,
 } from "@/services/cochoStorage";
-import { sincronizarCochos } from "@/services/cochoSync";
+import { sincronizarCochos, subscribeSincronizacaoCochos } from "@/services/cochoSync";
 import { parsePesoInput } from "@/utils/peso";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Cochos">;
@@ -89,6 +89,15 @@ export function CochosScreen({ navigation }: Props) {
       .then(setCochos)
       .catch(() => undefined);
   }, [atualizarPendentes]);
+
+  // Mantém o aviso de pendência atualizado mesmo com a tela já aberta e em
+  // foco, quando a sincronização vem de um gatilho global (`App.tsx`: abrir
+  // o app, voltar ao primeiro plano, wifi conectar) — sem isso, o aviso só
+  // era recalculado ao ganhar foco (`useFocusEffect` abaixo) ou logo depois
+  // de uma ação feita nesta própria tela, e ficava preso desatualizado
+  // mesmo com o cadastro já sincronizado de verdade (ver decisão registrada
+  // no projeto Claude, 2026-09-20).
+  useEffect(() => subscribeSincronizacaoCochos(atualizarPendentes), [atualizarPendentes]);
 
   // Recarrega toda vez que a aba ganha foco — cobre tanto o retorno de uma
   // nova captura quanto qualquer cadastro/edição/exclusão feita no próprio
