@@ -16,7 +16,6 @@ def settings(tmp_path) -> Settings:
         ROBOFLOW_API_KEY="test-roboflow-key",
         ROBOFLOW_WORKSPACE="lucas-da-guia-costa",
         ROBOFLOW_PROJECT="peso-de-alimento-no-cocho",
-        ROBOFLOW_PROJECT_ID="Nl9vkgG54JP6KWBK4ala",
         ROBOFLOW_UPLOAD_MAX_RETRIES=3,
         FOCUS_SCORE_THRESHOLD=100.0,
         TROUGH_VALIDATOR="mock",

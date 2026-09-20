@@ -20,49 +20,6 @@ class ExtractedFrame:
     frame_bgr: np.ndarray
 
 
-def _extract_sync(path: str, frames_per_second: float) -> list[ExtractedFrame]:
-    cap = cv2.VideoCapture(path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Não foi possível abrir o vídeo para extração: {path}")
-
-    source_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    if source_fps <= 0:
-        source_fps = 30.0
-
-    step = max(1, round(source_fps / frames_per_second))
-
-    extracted: list[ExtractedFrame] = []
-    frame_idx = 0
-    accepted_idx = 0
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            if frame_idx % step == 0:
-                time_ms = int((frame_idx / source_fps) * 1000)
-                extracted.append(
-                    ExtractedFrame(index=accepted_idx, time_ms=time_ms, frame_bgr=frame)
-                )
-                accepted_idx += 1
-            frame_idx += 1
-    finally:
-        cap.release()
-
-    return extracted
-
-
-async def extract_frames(path: Path, frames_per_second: float) -> list[ExtractedFrame]:
-    """Extrai ~`frames_per_second` frames por segundo do vídeo em `path`.
-
-    Mantida para compatibilidade/uso pontual. Decodifica o vídeo inteiro e
-    devolve TODOS os frames aceitos em uma lista só — custo de memória
-    proporcional a (duração x resolução). Para o pipeline de captura,
-    prefira `iter_frames`, que não tem esse problema (ver docstring lá).
-    """
-    return await asyncio.to_thread(_extract_sync, str(path), frames_per_second)
-
-
 _SENTINEL = object()
 
 
@@ -115,20 +72,19 @@ async def iter_frames(
 ) -> AsyncIterator[ExtractedFrame]:
     """Extrai frames em streaming, um de cada vez, com memória de pico limitada.
 
-    Diferente de `extract_frames`, que decodifica o vídeo inteiro antes de
-    devolver qualquer coisa (mantendo todos os frames aceitos — em geral
-    20-30 por vídeo de 7-10s — como arrays numpy simultaneamente em
-    memória), esta função roda a decodificação em uma thread separada e
-    entrega os frames um a um através de uma fila (`queue.Queue`) de
-    tamanho limitado (`max_buffered`).
+    Roda a decodificação em uma thread separada e entrega os frames um a um
+    através de uma fila (`queue.Queue`) de tamanho limitado (`max_buffered`),
+    em vez de decodificar o vídeo inteiro antes de devolver qualquer coisa
+    (o que manteria todos os frames aceitos — em geral 20-30 por vídeo de
+    7-10s — como arrays numpy simultaneamente em memória).
 
     Isso é o que dá backpressure de verdade: a thread produtora bloqueia em
     `queue.put()` quando a fila está cheia, então o processo nunca mantém
     mais que `max_buffered` frames decodificados ao mesmo tempo, não
     importa a duração ou resolução do vídeo. É essencial no plano free do
     Render (teto de 512MB): em 4K, cada frame decodificado pesa ~25MB —
-    segurar 20-30 de uma vez (o que `extract_frames` faz) sozinho já
-    passa dos 512MB, mesmo sem nenhuma concorrência.
+    segurar 20-30 de uma vez sozinho já passa dos 512MB, mesmo sem
+    nenhuma concorrência.
 
     O consumo continua sequencial (um frame por vez, como antes) — isso não
     reintroduz concorrência, só troca "decodificar tudo, depois processar

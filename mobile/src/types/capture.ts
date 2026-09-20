@@ -137,10 +137,3 @@ export interface CaptureResponse {
 export interface ApiErrorBody {
   detail: string;
 }
-
-export type UploadPhase =
-  | "idle"
-  | "enviando"
-  | "processando"
-  | "concluido"
-  | "erro";

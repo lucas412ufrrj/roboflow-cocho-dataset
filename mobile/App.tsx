@@ -21,8 +21,9 @@ import { configurarNotificacoes } from "@/services/notifications";
 // app só para rodar a tarefa, sem montar este componente).
 import { registrarSincronizacaoEmSegundoPlano } from "@/tasks/backgroundSyncTask";
 import { CHANGELOG } from "@/data/changelog";
-import { marcarVersaoComoVista, obterUltimaVersaoVista } from "@/services/changelogVisto";
-import { registrarAbridorDeChangelog } from "@/services/changelogControl";
+import { marcarVersaoComoVista } from "@/services/changelogVisto";
+import { obterNomeOperador } from "@/services/operador";
+import { registrarAbridorDeChangelog, verificarEAbrirChangelogSeNovo } from "@/services/changelogControl";
 import { verificarBuildDesatualizada } from "@/services/buildCheck";
 import { ChangelogModal } from "@/components/ChangelogModal";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -88,16 +89,16 @@ export default function App() {
       }
     });
 
-    // Mostra a tela de novidades só quando existe uma entrada de changelog
-    // mais nova do que a última que a pessoa já fechou.
-    (async () => {
-      const versaoMaisRecente = CHANGELOG[0]?.versao;
-      if (!versaoMaisRecente) return;
-      const versaoVista = await obterUltimaVersaoVista();
-      if (versaoVista !== versaoMaisRecente) {
-        setChangelogVisivel(true);
-      }
-    })();
+    // Mostra a tela de novidades automaticamente só quando já existe um nome
+    // de operador salvo neste aparelho (ou seja, não é a primeira abertura).
+    // Numa instalação nova, o modal obrigatório de nome do operador
+    // (LobbyScreen) tem prioridade — o changelog, se houver algo novo, é
+    // checado de novo logo depois que o nome for salvo pela primeira vez
+    // (ver `LobbyScreen.salvarOperador`). Sem essa checagem aqui, os dois
+    // modais abriam juntos em todo aparelho novo da equipe.
+    obterNomeOperador().then((nome) => {
+      if (nome) verificarEAbrirChangelogSeNovo();
+    });
 
     return () => {
       assinaturaEstadoApp.remove();

@@ -187,7 +187,6 @@ class Settings(BaseSettings):
     )
     ROBOFLOW_WORKSPACE: str = "lucas-da-guia-costa"
     ROBOFLOW_PROJECT: str = "peso-de-alimento-no-cocho"
-    ROBOFLOW_PROJECT_ID: str = "Nl9vkgG54JP6KWBK4ala"
     ROBOFLOW_UPLOAD_BASE_URL: str = "https://api.roboflow.com"
     ROBOFLOW_UPLOAD_TIMEOUT_S: float = 30.0
     ROBOFLOW_UPLOAD_MAX_RETRIES: int = 4

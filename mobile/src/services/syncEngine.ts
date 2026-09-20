@@ -79,11 +79,6 @@ function notificarProgresso(captureId: string, fracao: number) {
   ouvintesProgresso.forEach((ouvinte) => ouvinte(captureId, fracao));
 }
 
-/** Progresso (0–1) do envio em andamento desta captura, se houver algum. */
-export function obterProgresso(captureId: string): number | undefined {
-  return progressoPorItem.get(captureId);
-}
-
 /** Avisa a UI quando uma captura entra ou sai da fase "processando no
  * servidor" (bytes já enviados, aguardando o backend terminar). */
 export function subscribeProcessando(ouvinte: OuvinteProcessando): () => void {
@@ -93,12 +88,6 @@ export function subscribeProcessando(ouvinte: OuvinteProcessando): () => void {
 
 function notificarProcessando(captureId: string, processando: boolean) {
   ouvintesProcessando.forEach((ouvinte) => ouvinte(captureId, processando));
-}
-
-/** true quando esta captura já terminou de subir e está esperando o
- * servidor terminar de processar (ver comentário em `itemsProcessando`). */
-export function estaProcessando(captureId: string): boolean {
-  return itemsProcessando.has(captureId);
 }
 
 /**

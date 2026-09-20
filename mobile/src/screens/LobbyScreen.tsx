@@ -6,7 +6,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootNavigator";
 import { usePendingCount } from "@/hooks/usePendingCount";
 import { obterNomeOperador, salvarNomeOperador } from "@/services/operador";
-import { abrirChangelog } from "@/services/changelogControl";
+import { abrirChangelog, verificarEAbrirChangelogSeNovo } from "@/services/changelogControl";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Lobby">;
 
@@ -58,10 +58,18 @@ export function LobbyScreen({ navigation }: Props) {
       setErroOperador("Informe seu nome para continuar.");
       return;
     }
+    const eraPrimeiraConfiguracao = !operador;
     await salvarNomeOperador(nome);
     setOperador(nome);
     setErroOperador(null);
     setEditandoOperador(false);
+    // Só depois do modal obrigatório de nome ser resolvido é que a tela de
+    // novidades pode competir por atenção (ver App.tsx e
+    // `verificarEAbrirChangelogSeNovo`) — evita os dois modais abrindo
+    // juntos na primeira instalação.
+    if (eraPrimeiraConfiguracao) {
+      verificarEAbrirChangelogSeNovo();
+    }
   }
 
   return (
