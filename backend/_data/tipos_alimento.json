@@ -10,5 +10,11 @@
     "nome": "E hcctct",
     "densidade_aparente_kg_l": 1.2,
     "criado_em": 1789926262529
+  },
+  "9505d283-c33d-457f-8c58-eacaf3490d4d": {
+    "tipo_alimento_id": "9505d283-c33d-457f-8c58-eacaf3490d4d",
+    "nome": "Ert",
+    "densidade_aparente_kg_l": 1.2,
+    "criado_em": 1789927159863
   }
 }
