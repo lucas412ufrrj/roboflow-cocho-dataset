@@ -117,6 +117,33 @@ class Settings(BaseSettings):
     FRAMES_PER_SECOND: float = 3.0
     FOCUS_SCORE_THRESHOLD: float = 100.0  # variância do Laplaciano
 
+    # --- ffmpeg (normalização/reencode de vídeo) ---
+    # O ffmpeg roda como subprocesso do MESMO container, então a memória dele
+    # conta junto no teto de 512MB do Render — foi o que derrubou o serviço
+    # três vezes em 22/09, sempre logo depois de "normalização NECESSÁRIA"
+    # num vídeo HEVC 1080p vindo da galeria (ver decisão registrada no
+    # projeto Claude).
+    #
+    # Threads: sem `-threads`, o ffmpeg usa "auto" = número de CPUs que ele
+    # ENXERGA, que no Render é o do host inteiro, não a fatia do plano. Cada
+    # thread do decoder e do encoder aloca seus próprios buffers de quadro,
+    # então "auto" multiplica o consumo por algo que não temos controle
+    # nenhum. 1 thread é mais lento e previsível; o vídeo tem ~9 s, dá tempo
+    # de sobra dentro do timeout do app (60 s, ver `TIMEOUT_*` em `client.ts`).
+    FFMPEG_THREADS: int = 1
+    # Quantos reencodes podem rodar ao mesmo tempo neste processo. Com 1, uma
+    # equipe inteira enviando junto enfileira em vez de somar N ffmpegs na
+    # memória ao mesmo tempo (ver `_SEMAFORO_FFMPEG` em `ffmpeg_utils.py`).
+    FFMPEG_MAX_CONCORRENTES: int = 1
+    # Teto de resolução ao normalizar. 1080p multiplica o custo de memória do
+    # encoder sem ganho pro pipeline: os quadros vão pro Roboflow e o modelo
+    # trabalha em resolução bem menor. Também alinha o vídeo de galeria com o
+    # de câmera, que já era cortado em 1280x720 (ver
+    # `reencode_for_camera_origin`). Suba se algum dia precisar de mais
+    # detalhe no quadro — e acompanhe a memória se fizer isso.
+    NORMALIZACAO_MAX_WIDTH: int = 1280
+    NORMALIZACAO_MAX_HEIGHT: int = 720
+
     # --- Armazenamento temporário (vídeo em processamento) ---
     # De propósito EFÊMERO: cada arquivo aqui é apagado por `_cleanup` no fim
     # do processamento da própria captura (ver `capture_service.py`). No

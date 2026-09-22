@@ -13,9 +13,39 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.config import get_settings
+
 
 class FFmpegNotFoundError(RuntimeError):
     pass
+
+
+# Serializa os reencodes deste processo (ver `FFMPEG_MAX_CONCORRENTES` em
+# `config.py`). Sem isso, N pessoas da equipe enviando ao mesmo tempo somam N
+# processos de ffmpeg simultâneos na memória do container — e como o teto do
+# Render é do container inteiro (Python + todos os subprocessos), dois
+# encodes concorrentes de 1080p já bastam pra estourar. Criado sob demanda
+# porque um `asyncio.Semaphore` precisa nascer dentro do loop que vai usá-lo.
+_semaforo_ffmpeg: asyncio.Semaphore | None = None
+
+
+def _obter_semaforo() -> asyncio.Semaphore:
+    global _semaforo_ffmpeg
+    if _semaforo_ffmpeg is None:
+        _semaforo_ffmpeg = asyncio.Semaphore(max(1, get_settings().FFMPEG_MAX_CONCORRENTES))
+    return _semaforo_ffmpeg
+
+
+async def _rodar_ffmpeg(cmd: list[str], *, descricao: str) -> None:
+    """Executa um comando de ffmpeg sob o semáforo de concorrência, sempre
+    descartando a saída padrão (só o stderr importa, e só quando falha)."""
+    async with _obter_semaforo():
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg ({descricao}) falhou: {stderr.decode(errors='ignore')}")
 
 
 def _ensure_binaries() -> None:
@@ -78,32 +108,57 @@ async def probe_video(path: Path) -> VideoProbeInfo:
 
 
 async def normalize_to_h264_mp4(src: Path, dst: Path) -> None:
-    """Reencoda `src` para MP4/H.264 + AAC em `dst`, caso já não esteja nesse formato."""
+    """Reencoda `src` para MP4/H.264 em `dst`, quando o codec não é H.264.
+
+    Tudo aqui é escolhido pra caber no teto de 512MB do Render, porque o
+    ffmpeg é subprocesso do mesmo container e a memória dele conta junto
+    (ver comentários em `FFMPEG_THREADS`, em `config.py`):
+
+    - `-threads` fixo nos dois lados (antes do `-i` limita o DECODER, depois
+      limita o ENCODER); sem isso o ffmpeg abre uma thread por CPU do host e
+      cada uma carrega seus próprios buffers de quadro.
+    - resolução limitada a `NORMALIZACAO_MAX_WIDTH/HEIGHT`, com
+      `force_original_aspect_ratio=decrease` pra nunca distorcer nem ampliar
+      um vídeo que já seja menor.
+    - `-preset veryfast` no lugar de `fast`: menos lookahead de quadros em
+      memória, e a compressão pior não importa aqui (o arquivo é temporário,
+      só serve pra extrair quadros e é apagado no fim da captura).
+    - `-an` descarta o áudio: o pipeline só usa quadros, e o encoder de áudio
+      só somava buffers.
+    - sem `+faststart`: ele reescreve o arquivo no fim pra otimizar
+      streaming pela web, o que não serve pra nada num arquivo que vai ser
+      lido localmente pelo OpenCV e descartado em seguida.
+    """
     _ensure_binaries()
     dst.parent.mkdir(parents=True, exist_ok=True)
+    settings = get_settings()
+    threads = str(max(1, settings.FFMPEG_THREADS))
+    escala = (
+        f"scale='min({settings.NORMALIZACAO_MAX_WIDTH},iw)'"
+        f":'min({settings.NORMALIZACAO_MAX_HEIGHT},ih)'"
+        ":force_original_aspect_ratio=decrease"
+    )
     cmd = [
         "ffmpeg",
         "-y",
+        "-threads",
+        threads,
         "-i",
         str(src),
+        "-vf",
+        escala,
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        "veryfast",
+        "-threads",
+        threads,
         "-pix_fmt",
         "yuv420p",
-        "-c:a",
-        "aac",
-        "-movflags",
-        "+faststart",
+        "-an",
         str(dst),
     ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg (normalização) falhou: {stderr.decode(errors='ignore')}")
+    await _rodar_ffmpeg(cmd, descricao="normalização")
 
 
 async def reencode_for_camera_origin(
@@ -135,10 +190,15 @@ async def reencode_for_camera_origin(
     """
     _ensure_binaries()
     dst.parent.mkdir(parents=True, exist_ok=True)
+    threads = str(max(1, get_settings().FFMPEG_THREADS))
     escala = f"scale='min({max_width},iw)':'min({max_height},ih)':force_original_aspect_ratio=decrease"
     cmd = [
         "ffmpeg",
         "-y",
+        # Mesmas travas de memória de `normalize_to_h264_mp4` — ver docstring
+        # lá para o porquê de cada uma.
+        "-threads",
+        threads,
         "-i",
         str(src),
         "-vf",
@@ -146,7 +206,9 @@ async def reencode_for_camera_origin(
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        "veryfast",
+        "-threads",
+        threads,
         "-b:v",
         video_bitrate,
         "-maxrate",
@@ -155,18 +217,10 @@ async def reencode_for_camera_origin(
         "4M",
         "-pix_fmt",
         "yuv420p",
-        "-c:a",
-        "aac",
-        "-movflags",
-        "+faststart",
+        "-an",
         str(dst),
     ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg (reencode câmera) falhou: {stderr.decode(errors='ignore')}")
+    await _rodar_ffmpeg(cmd, descricao="reencode câmera")
 
 
 def needs_normalization(probe: VideoProbeInfo, mime_type: str) -> bool:
