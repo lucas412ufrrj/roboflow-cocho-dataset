@@ -16,13 +16,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    versao: "2026-09-22",
+    data: "22/09/2026",
+    itens: [
+      "Agora você pode sincronizar manualmente a lista de cochos e alimentos, desde que esteja com internet.",
+    ],
+  },
+  {
     versao: "2026-09-19",
     data: "19/09/2026",
     itens: [
       "Cada cocho cadastrado agora tem um menu (⋮) com opções de editar ou excluir.",
-      "A lista de cochos agora é compartilhada entre a equipe (antes era só local a cada aparelho). Cadastrar, editar ou excluir continua restrito a quem tiver a chave de administrador configurada em Sobre.",
+      "A lista de cochos e alimentos agora é compartilhada.",
       "Novo campo \"Experimento/ano\" no cadastro de cocho, separado do nome, pra ajudar a comparar dados entre cochos e entre anos depois.",
-      "Tela de gravação agora mostra uma marcação na tela pra ajudar a manter distância e ângulo parecidos entre pessoas e entre gravações.",
     ],
   },
   {
@@ -36,9 +42,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     versao: "2026-09-14-6",
     data: "14/09/2026",
     itens: [
-      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez (aparece um aviso na tela inicial). Fica salvo no aparelho e é anexado a cada captura enviada, sem precisar digitar de novo — dá pra trocar depois pelo link \"Operador(a)\" no rodapé da tela inicial.",
-      "Agora o horário em que o vídeo foi gravado sobe como metadado para complementar ainda mais a pool de dados do experimento.",
-      "Notificação avisando quando uma captura pendente termina de enviar, ou quando um envio está falhando repetidamente — mesmo com o app fechado.",
+      "Agora é obrigatório informar seu nome ao abrir o app pela primeira vez.",
+      "Notificação avisando quando uma captura pendente termina de enviar, ou quando um envio está falhando repetidamente.",
       "O Histórico agora mostra uma miniatura de cada vídeo, além do texto.",
       "Vídeos grandes agora são enviados em pedaços: se a conexão cair no meio do envio, a próxima tentativa continua de onde parou, em vez de reenviar tudo de novo.",
     ],
@@ -60,26 +65,16 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    versao: "2026-09-14-3",
-    data: "14/09/2026",
-    itens: [
-      "Tela de Prévia agora mostra peso, tipo de alimento, ID do cocho e observações com um link 'editar' em cada um — toca pra corrigir ali mesmo, sem precisar voltar pra tela de formulário.",
-    ],
-  },
-  {
     versao: "2026-09-14-2",
     data: "14/09/2026",
     itens: [
       "Botão 'Sincronizar agora' na tela de Histórico, pra forçar o envio de tudo que estiver pendente sem esperar.",
-      "Cada captura pendente agora tem um menu (⋮) com a opção de cancelar o envio — apaga o vídeo do aparelho, útil se o arquivo estiver corrompido ou travando a fila.",
     ],
   },
   {
     versao: "2026-09-14",
     data: "14/09/2026",
-    itens: [
-      "Nova aba de Histórico (botão no topo da tela de nova captura), mostrando data e hora de cada captura, se já foi enviada ou está aguardando sincronização, e quantos frames foram aprovados depois do envio.",
-    ],
+    itens: ["Nova aba de histórico."],
   },
   {
     versao: "2026-09-10-10",

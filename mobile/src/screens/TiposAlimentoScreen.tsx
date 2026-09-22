@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -29,7 +30,12 @@ import {
   type TipoAlimentoRegistrado,
 } from "@/services/tipoAlimentoStorage";
 import { sincronizarTiposAlimento, subscribeSincronizacaoTiposAlimento } from "@/services/tipoAlimentoSync";
+import { sincronizarCochos } from "@/services/cochoSync";
+import { temConexaoConectada } from "@/services/syncEngine";
 import { parsePesoInput } from "@/utils/peso";
+
+/** Ver `CochosScreen.STATUS_SYNC_VISIVEL_MS`. */
+const STATUS_SYNC_VISIVEL_MS = 5000;
 
 // Mesma lógica de admin/sincronização de `CochosScreen.tsx` — ver comentários
 // lá para o raciocínio completo, não repetido aqui campo a campo.
@@ -47,6 +53,9 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
   const [chaveAdmin, setChaveAdmin] = useState<string | undefined>(undefined);
   // Mesma lógica de `CochosScreen.tsx` — ver comentário lá.
   const [pendentesSincronizar, setPendentesSincronizar] = useState(0);
+  // Sincronização manual pelo botão do rodapé — ver `CochosScreen.tsx`.
+  const [sincronizando, setSincronizando] = useState(false);
+  const [statusSync, setStatusSync] = useState<string | null>(null);
 
   const [modalVisivel, setModalVisivel] = useState(false);
   // `null` = cadastrando um tipo novo; preenchido = editando esse tipo.
@@ -94,6 +103,36 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
       carregarTipos();
     }, [carregarTipos])
   );
+
+  // Ver `CochosScreen.tsx` — mesma lógica de status que some sozinho.
+  useEffect(() => {
+    if (!statusSync) return;
+    const id = setTimeout(() => setStatusSync(null), STATUS_SYNC_VISIVEL_MS);
+    return () => clearTimeout(id);
+  }, [statusSync]);
+
+  /** Sincronização manual dos dois registros (cochos e tipos de alimento) —
+   * mesma lógica de `CochosScreen.sincronizarAgora`, ver comentário lá. */
+  async function sincronizarAgora() {
+    if (sincronizando) return;
+    setStatusSync(null);
+    if (!(await temConexaoConectada())) {
+      setStatusSync("Você está offline no momento, conecte-se para sincronizar a lista");
+      return;
+    }
+    setSincronizando(true);
+    try {
+      await Promise.all([sincronizarTiposAlimento(), sincronizarCochos()]);
+      const doServidor = await listarTiposAlimentoNoBackend();
+      setTipos(await mesclarComServidor(doServidor));
+      setStatusSync("Lista sincronizada.");
+    } catch {
+      setStatusSync("Não foi possível sincronizar agora. Tente de novo em instantes.");
+    } finally {
+      setSincronizando(false);
+      atualizarPendentes();
+    }
+  }
 
   function abrirModalNovo() {
     setTipoEmEdicao(null);
@@ -219,6 +258,18 @@ export function TiposAlimentoScreen({ navigation, route }: Props) {
         </Pressable>
       )}
 
+      {/* Sincronização manual — ver comentário em `CochosScreen.tsx`. */}
+      <Pressable
+        style={styles.linkSincronizar}
+        onPress={sincronizarAgora}
+        disabled={sincronizando}
+        hitSlop={8}
+      >
+        <Text style={styles.linkSincronizarTexto}>Sincronizar lista</Text>
+        {sincronizando && <ActivityIndicator size="small" color="#8A8F98" />}
+      </Pressable>
+      {statusSync && <Text style={styles.statusSync}>{statusSync}</Text>}
+
       {/* Menu de opções (editar/excluir) do tipo tocado no "⋮". */}
       <Modal visible={menuAberto !== null} transparent animationType="fade" onRequestClose={() => setMenuAberto(null)}>
         <Pressable style={styles.modalFundo} onPress={() => setMenuAberto(null)}>
@@ -338,6 +389,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 12,
     textAlign: "center",
+  },
+  // Ver `CochosScreen.tsx` — mesma estética do link "Versão" da Lobby.
+  linkSincronizar: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginTop: 12,
+  },
+  linkSincronizarTexto: {
+    color: "#8A8F98",
+    fontSize: 12,
+    textDecorationLine: "underline",
+  },
+  statusSync: {
+    color: "#8A8F98",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 8,
   },
   modalFundo: {
     flex: 1,

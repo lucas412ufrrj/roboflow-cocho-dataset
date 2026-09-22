@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -29,7 +30,13 @@ import {
   type CochoRegistrado,
 } from "@/services/cochoStorage";
 import { sincronizarCochos, subscribeSincronizacaoCochos } from "@/services/cochoSync";
+import { temConexaoConectada } from "@/services/syncEngine";
+import { sincronizarTiposAlimento } from "@/services/tipoAlimentoSync";
 import { parsePesoInput } from "@/utils/peso";
+
+/** Quanto tempo a mensagem de status do botão de sincronizar fica na tela
+ * antes de sumir sozinha. */
+const STATUS_SYNC_VISIVEL_MS = 5000;
 
 type Props = NativeStackScreenProps<RootStackParamList, "Cochos">;
 
@@ -47,6 +54,12 @@ export function CochosScreen({ navigation }: Props) {
   // trocar de aparelho antes da sincronização terminar (ver decisão
   // registrada no projeto Claude, 2026-09-20).
   const [pendentesSincronizar, setPendentesSincronizar] = useState(0);
+  // Sincronização manual pelo botão do rodapé (ver `sincronizarAgora`). A
+  // sincronização automática continua existindo e é silenciosa — este botão
+  // é só pra quem quer conferir na hora se já recebeu a lista mais nova da
+  // equipe, sem esperar um gatilho automático.
+  const [sincronizando, setSincronizando] = useState(false);
+  const [statusSync, setStatusSync] = useState<string | null>(null);
 
   const [modalVisivel, setModalVisivel] = useState(false);
   // `null` = cadastrando um cocho novo; preenchido = editando esse cocho.
@@ -107,6 +120,45 @@ export function CochosScreen({ navigation }: Props) {
       carregarCochos();
     }, [carregarCochos])
   );
+
+  // Mensagem de status do botão de sincronizar some sozinha depois de alguns
+  // segundos — é um retorno pontual da ação, não um estado permanente da tela.
+  useEffect(() => {
+    if (!statusSync) return;
+    const id = setTimeout(() => setStatusSync(null), STATUS_SYNC_VISIVEL_MS);
+    return () => clearTimeout(id);
+  }, [statusSync]);
+
+  /**
+   * Sincronização manual disparada pelo botão do rodapé. Faz os dois sentidos
+   * de uma vez: empurra o que este aparelho tem pendente (cochos E tipos de
+   * alimento, porque quem toca aqui quer a lista inteira em dia, não metade)
+   * e puxa a lista mais recente do backend, mesclando com a cópia local.
+   *
+   * Ao contrário da sincronização automática (silenciosa de propósito, ver
+   * `cochoSync.ts`), esta dá retorno visível: é o ponto da interface onde a
+   * pessoa pediu explicitamente por isso e precisa saber o que aconteceu.
+   */
+  async function sincronizarAgora() {
+    if (sincronizando) return;
+    setStatusSync(null);
+    if (!(await temConexaoConectada())) {
+      setStatusSync("Você está offline no momento, conecte-se para sincronizar a lista");
+      return;
+    }
+    setSincronizando(true);
+    try {
+      await Promise.all([sincronizarCochos(), sincronizarTiposAlimento()]);
+      const doServidor = await listarCochosNoBackend();
+      setCochos(await mesclarComServidor(doServidor));
+      setStatusSync("Lista sincronizada.");
+    } catch {
+      setStatusSync("Não foi possível sincronizar agora. Tente de novo em instantes.");
+    } finally {
+      setSincronizando(false);
+      atualizarPendentes();
+    }
+  }
 
   function abrirModalNovo() {
     setCochoEmEdicao(null);
@@ -247,6 +299,21 @@ export function CochosScreen({ navigation }: Props) {
           <Text style={styles.botaoRegistrarTexto}>Registrar cocho</Text>
         </Pressable>
       )}
+
+      {/* Sincronização manual — mesma estética discreta do link "Versão" da
+          Lobby (ver `LobbyScreen.linkSobre`). Aparece pra todo mundo, não só
+          pra quem tem chave de admin: quem mais precisa disso é justamente
+          quem só recebe a lista cadastrada por outra pessoa. */}
+      <Pressable
+        style={styles.linkSincronizar}
+        onPress={sincronizarAgora}
+        disabled={sincronizando}
+        hitSlop={8}
+      >
+        <Text style={styles.linkSincronizarTexto}>Sincronizar lista</Text>
+        {sincronizando && <ActivityIndicator size="small" color="#8A8F98" />}
+      </Pressable>
+      {statusSync && <Text style={styles.statusSync}>{statusSync}</Text>}
 
       {/* Menu de opções (editar/excluir) do cocho tocado no "⋮". */}
       <Modal visible={menuAberto !== null} transparent animationType="fade" onRequestClose={() => setMenuAberto(null)}>
@@ -402,6 +469,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 12,
     textAlign: "center",
+  },
+  // Mesma estética do link "Versão" na Lobby (ver `LobbyScreen.linkSobre`),
+  // com espaço pra rodinha de carregamento ao lado do texto.
+  linkSincronizar: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    marginTop: 12,
+  },
+  linkSincronizarTexto: {
+    color: "#8A8F98",
+    fontSize: 12,
+    textDecorationLine: "underline",
+  },
+  statusSync: {
+    color: "#8A8F98",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 8,
   },
   modalFundo: {
     flex: 1,

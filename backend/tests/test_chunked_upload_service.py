@@ -74,7 +74,19 @@ async def test_save_chunk_indice_fora_do_intervalo_lanca_erro(service: ChunkedUp
         await service.save_chunk(capture_id="cap-3", chunk_index=5, data=b"x")
 
 
-async def test_load_completed_video_falta_bloco_lanca_erro(service: ChunkedUploadService):
+async def _ler_tudo(leitor, size: int = 4) -> bytes:
+    """Consome o leitor do jeito que `save_stream` consome: pedaço a pedaço
+    até receber vazio. Usado só nos testes; em produção quem consome é o
+    `StorageBackend.save_stream`."""
+    partes = []
+    while True:
+        pedaco = await leitor.read(size)
+        if not pedaco:
+            return b"".join(partes)
+        partes.append(pedaco)
+
+
+async def test_abrir_video_montado_falta_bloco_lanca_erro(service: ChunkedUploadService):
     await service.init_session(
         capture_id="cap-4", total_size=2000, chunk_size=1000, total_chunks=2,
         mime_type="video/mp4", original_filename="video.mp4", form=_form(),
@@ -82,33 +94,60 @@ async def test_load_completed_video_falta_bloco_lanca_erro(service: ChunkedUploa
     await service.save_chunk(capture_id="cap-4", chunk_index=0, data=b"a" * 1000)
 
     with pytest.raises(ChunkedUploadError):
-        await service.load_completed_video("cap-4")
+        await service.abrir_video_montado("cap-4")
 
 
-async def test_load_completed_video_junta_blocos_na_ordem_certa(service: ChunkedUploadService):
+async def test_abrir_video_montado_entrega_blocos_na_ordem_certa(service: ChunkedUploadService):
     await service.init_session(
         capture_id="cap-5", total_size=6, chunk_size=3, total_chunks=2,
         mime_type="video/mp4", original_filename="video.mp4", form=_form(peso_kg=30.0),
     )
-    # Salva fora de ordem de propósito — o resultado final precisa respeitar
+    # Salva fora de ordem de propósito — o stream final precisa respeitar
     # a ordem dos índices, não a ordem de chegada.
     await service.save_chunk(capture_id="cap-5", chunk_index=1, data=b"XYZ")
     await service.save_chunk(capture_id="cap-5", chunk_index=0, data=b"ABC")
 
-    video_bytes, manifest = await service.load_completed_video("cap-5")
-    assert video_bytes == b"ABCXYZ"
+    leitor, manifest = await service.abrir_video_montado("cap-5")
+    assert await _ler_tudo(leitor) == b"ABCXYZ"
     assert manifest["form"]["peso_kg"] == 30.0
 
 
-async def test_load_completed_video_tamanho_incompativel_lanca_erro(service: ChunkedUploadService):
+async def test_abrir_video_montado_respeita_o_tamanho_pedido_em_cada_read(
+    service: ChunkedUploadService,
+):
+    """Garantia de memória: o leitor nunca devolve mais do que foi pedido,
+    e só toca um bloco por vez — é isso que mantém o pico independente do
+    tamanho do vídeo (ver `_LeitorDeBlocos`)."""
+    await service.init_session(
+        capture_id="cap-7", total_size=6, chunk_size=3, total_chunks=2,
+        mime_type="video/mp4", original_filename="video.mp4", form=_form(),
+    )
+    await service.save_chunk(capture_id="cap-7", chunk_index=0, data=b"ABC")
+    await service.save_chunk(capture_id="cap-7", chunk_index=1, data=b"XYZ")
+
+    leitor, _ = await service.abrir_video_montado("cap-7")
+    lidos = []
+    while True:
+        pedaco = await leitor.read(2)
+        if not pedaco:
+            break
+        assert len(pedaco) <= 2
+        lidos.append(pedaco)
+    assert b"".join(lidos) == b"ABCXYZ"
+
+
+async def test_abrir_video_montado_tamanho_incompativel_lanca_erro(service: ChunkedUploadService):
     await service.init_session(
         capture_id="cap-6", total_size=999, chunk_size=3, total_chunks=1,
         mime_type="video/mp4", original_filename="video.mp4", form=_form(),
     )
     await service.save_chunk(capture_id="cap-6", chunk_index=0, data=b"ABC")
 
+    # Agora o erro só aparece ao terminar de consumir o stream: sem o vídeo
+    # inteiro em memória, não há o que medir antes de começar a gravar.
+    leitor, _ = await service.abrir_video_montado("cap-6")
     with pytest.raises(ChunkedUploadError):
-        await service.load_completed_video("cap-6")
+        await _ler_tudo(leitor)
 
 
 async def test_cleanup_remove_blocos_e_manifesto(service: ChunkedUploadService):

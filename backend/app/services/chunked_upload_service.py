@@ -48,6 +48,64 @@ def _chunk_key(capture_id: str, chunk_index: int) -> str:
     return f"chunked_uploads/{capture_id}/{chunk_index:06d}.part"
 
 
+class _LeitorDeBlocos:
+    """Entrega os blocos já gravados no storage como um stream contínuo, na
+    ordem dos índices, carregando no máximo UM bloco por vez na memória.
+
+    Implementa só o que `StorageBackend.save_stream` exige de um stream (ver
+    `AsyncReadable` em `app/storage/base.py`): um `read(size)` assíncrono que
+    devolve até `size` bytes e uma sequência vazia quando acaba. É esse
+    contrato mínimo que permite reaproveitar, no envio em blocos, o mesmo
+    caminho de gravação por streaming que o envio único já usa.
+
+    Confere o tamanho total no fim (quando sinaliza o fim do stream): se a
+    soma dos blocos não bater com o `total_size` declarado em
+    `init_session`, levanta `ChunkedUploadError` em vez de deixar seguir um
+    vídeo truncado/duplicado pro pipeline. A checagem acontece no fim porque
+    aqui, ao contrário da versão antiga, nunca existe um objeto com o vídeo
+    inteiro pra medir antes de começar a gravar.
+    """
+
+    def __init__(
+        self,
+        *,
+        storage: StorageBackend,
+        capture_id: str,
+        total_chunks: int,
+        total_size_esperado: int,
+    ) -> None:
+        self._storage = storage
+        self._capture_id = capture_id
+        self._total_chunks = total_chunks
+        self._total_size_esperado = total_size_esperado
+        self._proximo_bloco = 0
+        self._buffer = b""
+        self._entregues = 0
+
+    async def read(self, size: int = -1) -> bytes:
+        if not self._buffer and self._proximo_bloco < self._total_chunks:
+            self._buffer = await self._storage.read_bytes(
+                _chunk_key(self._capture_id, self._proximo_bloco)
+            )
+            self._proximo_bloco += 1
+
+        if not self._buffer:
+            # Fim do stream: é aqui, e só aqui, que dá pra conferir o total.
+            if self._entregues != self._total_size_esperado:
+                raise ChunkedUploadError(
+                    f"Tamanho final do vídeo ({self._entregues} bytes) não bate com o "
+                    f"esperado ({self._total_size_esperado} bytes)."
+                )
+            return b""
+
+        if size < 0 or size >= len(self._buffer):
+            dados, self._buffer = self._buffer, b""
+        else:
+            dados, self._buffer = self._buffer[:size], self._buffer[size:]
+        self._entregues += len(dados)
+        return dados
+
+
 class ChunkedUploadService:
     def __init__(self, storage: StorageBackend) -> None:
         self.storage = storage
@@ -135,10 +193,30 @@ class ChunkedUploadService:
             await self._write_manifest(capture_id, manifest)
             return manifest
 
-    async def load_completed_video(self, capture_id: str) -> tuple[bytes, dict]:
-        """Junta todos os blocos na ordem certa e devolve os bytes do vídeo
-        completo junto com o manifesto (que carrega os metadados do
-        formulário, salvos em `init_session`)."""
+    async def abrir_video_montado(self, capture_id: str) -> tuple[_LeitorDeBlocos, dict]:
+        """Devolve um leitor que entrega o vídeo completo em sequência, na
+        ordem certa dos blocos, junto com o manifesto (que carrega os
+        metadados do formulário, salvos em `init_session`).
+
+        O leitor nunca tem mais de um bloco em memória de cada vez (ver
+        `_LeitorDeBlocos`), e é isso que separa este método do que existia
+        antes aqui: a versão anterior (`load_completed_video`) lia todos os
+        blocos pra uma lista e ainda fazia `b"".join(...)` em cima, ou seja,
+        duas cópias do vídeo inteiro na RAM ao mesmo tempo. Como o app manda
+        por blocos qualquer vídeo acima de 8MB (ver
+        `LIMIAR_ENVIO_EM_BLOCOS_BYTES` em `mobile/src/api/client.ts`), era
+        justamente o caminho dos vídeos GRANDES que materializava tudo em
+        memória — o envio único já tinha sido corrigido pra streaming em
+        15/09 e este aqui tinha ficado de fora. Com `MAX_VIDEO_SIZE_MB=150`,
+        isso dava até 300MB de pico só na montagem, num processo com teto de
+        512MB no Render: foi o que derrubou o serviço por falta de memória em
+        22/09 (ver decisão registrada no projeto Claude).
+
+        Quem consome isso passa o leitor direto pra
+        `CaptureService.process_capture_from_stream`, que grava em disco
+        conforme lê (`StorageBackend.save_stream`) sem nunca montar o vídeo
+        inteiro como um único `bytes`.
+        """
         manifest = await self._read_manifest(capture_id)
         if manifest is None:
             raise ChunkedUploadError("Sessão de envio não encontrada.")
@@ -151,16 +229,13 @@ class ChunkedUploadService:
                 f"Faltam {len(faltando)} de {total_chunks} blocos — envie todos antes de concluir."
             )
 
-        partes = [await self.storage.read_bytes(_chunk_key(capture_id, index)) for index in range(total_chunks)]
-        video_bytes = b"".join(partes)
-
-        if len(video_bytes) != manifest["total_size"]:
-            raise ChunkedUploadError(
-                f"Tamanho final do vídeo ({len(video_bytes)} bytes) não bate com o "
-                f"esperado ({manifest['total_size']} bytes)."
-            )
-
-        return video_bytes, manifest
+        leitor = _LeitorDeBlocos(
+            storage=self.storage,
+            capture_id=capture_id,
+            total_chunks=total_chunks,
+            total_size_esperado=manifest["total_size"],
+        )
+        return leitor, manifest
 
     async def cleanup(self, capture_id: str) -> None:
         """Remove todos os blocos e o manifesto dessa sessão — chamado

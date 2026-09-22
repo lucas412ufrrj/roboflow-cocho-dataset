@@ -195,24 +195,34 @@ async def complete_chunked_upload(
         return response
 
     try:
-        video_bytes, manifest = await chunked_upload_service.load_completed_video(capture_id)
+        leitor, manifest = await chunked_upload_service.abrir_video_montado(capture_id)
     except ChunkedUploadError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     form = CaptureFormInput.model_validate(manifest["form"])
     logger.info(
-        "complete_chunked_upload: capture_id=%s vídeo montado (%.1fMB) a partir de %d blocos",
-        capture_id, len(video_bytes) / 1024 / 1024, manifest["total_chunks"],
+        "complete_chunked_upload: capture_id=%s montando vídeo (%.1fMB) a partir de %d blocos, direto pro storage",
+        capture_id, manifest["total_size"] / 1024 / 1024, manifest["total_chunks"],
     )
 
     try:
-        return await capture_service.process_capture(
+        # Os blocos são concatenados direto no disco, um por vez, em vez de
+        # virarem um `bytes` único com o vídeo inteiro (ver
+        # `abrir_video_montado`): é o mesmo caminho de streaming do envio
+        # único, e é o que mantém o pico de memória independente do tamanho
+        # do vídeo — o que estourava os 512MB do Render antes.
+        return await capture_service.process_capture_from_stream(
             capture_id=capture_id,
-            video_bytes=video_bytes,
+            video_stream=leitor,
             mime_type=manifest["mime_type"],
             original_filename=manifest["original_filename"],
             form=form,
+            max_size_bytes=int(get_settings().MAX_VIDEO_SIZE_MB * 1024 * 1024),
         )
+    except ChunkedUploadError as exc:
+        # Só chega aqui se o total dos blocos não bater com o declarado —
+        # a checagem acontece ao fim do stream (ver `_LeitorDeBlocos`).
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except VideoValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:  # noqa: BLE001

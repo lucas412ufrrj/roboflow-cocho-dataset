@@ -153,13 +153,20 @@ class CaptureService:
     ) -> CaptureResponse:
         """Processa a partir do vídeo já inteiro em memória.
 
-        Usado pelo envio em blocos (`chunked_uploads.py`), que já precisa
-        montar o vídeo completo a partir dos pedaços antes de chegar aqui —
-        nesse caminho não há ganho em evitar o `bytes` único, o vídeo já
-        está montado. Para o envio único (`/api/captures`), prefira
-        `process_capture_from_stream`, que nunca materializa o vídeo inteiro
-        em memória de uma vez (ver docstring lá e em `save_stream`, em
-        `app/storage/base.py`).
+        NENHUMA rota usa este caminho hoje, de propósito: ele materializa o
+        vídeo inteiro como um único `bytes`, e é exatamente isso que estourou
+        o teto de 512MB do Render em 22/09 (o envio em blocos montava o vídeo
+        na RAM antes de chamar aqui). Tanto o envio único (`/api/captures`)
+        quanto o envio em blocos (`/api/captures/{id}/complete`) usam
+        `process_capture_from_stream`, que grava direto no storage conforme
+        lê, sem nunca ter o vídeo inteiro em memória (ver docstring lá, em
+        `save_stream` em `app/storage/base.py`, e em
+        `ChunkedUploadService.abrir_video_montado`).
+
+        Continua existindo porque é o caminho mais simples de exercitar em
+        teste (vídeo pequeno, já em memória) e é usado assim por
+        `tests/test_idempotency.py` e `tests/test_capture_service_modelo1.py`.
+        Para qualquer código de produção, prefira o caminho por streaming.
         """
         # --- Idempotência: já processamos esse capture_id antes? ---
         cached = await self.idempotency_store.get(capture_id)
