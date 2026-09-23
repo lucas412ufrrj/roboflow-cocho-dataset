@@ -62,31 +62,147 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     return horarioPorDataDoArquivo(asset.uri);
   }
 
+  function formatarMB(bytes: number | null | undefined): string {
+    if (!bytes && bytes !== 0) return "?";
+    return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
+  }
+
+  /** Espaço livre no aparelho, em bytes. `null` quando não dá pra descobrir
+   * (a função não existe na versão instalada da biblioteca de arquivos, ou o
+   * sistema não respondeu) — nesse caso seguimos em frente sem a checagem
+   * prévia, em vez de bloquear por falta de uma informação auxiliar. */
+  async function espacoLivreBytes(): Promise<number | null> {
+    try {
+      const fn = (FileSystem as unknown as { getFreeDiskStorageAsync?: () => Promise<number> })
+        .getFreeDiskStorageAsync;
+      if (typeof fn !== "function") return null;
+      return await fn();
+    } catch {
+      return null;
+    }
+  }
+
+  type MotivoFalha = "espaco" | "nuvem" | "ilegivel";
+
   /**
-   * Copia o arquivo escolhido no seletor da galeria para dentro do espaço do
-   * app, devolvendo o caminho da cópia (ou `null` se a cópia falhar).
+   * Classifica a falha da cópia para conseguir dizer à pessoa o que houve, em
+   * vez do antigo "não foi possível ler" genérico, que não distinguia celular
+   * cheio de vídeo que mora na nuvem. A classificação é por palavra-chave na
+   * mensagem do sistema, então é heurística: o texto cru vai junto no aviso e
+   * no log, e qualquer coisa não reconhecida cai em "ilegivel" mostrando esse
+   * texto, em vez de ser engolida.
+   */
+  function classificarFalhaDeCopia(detalhe: string): MotivoFalha {
+    const t = detalhe.toLowerCase();
+    if (t.includes("enospc") || t.includes("no space") || t.includes("espaço") || t.includes("space left")) {
+      return "espaco";
+    }
+    if (
+      t.includes("network") ||
+      t.includes("offline") ||
+      t.includes("download") ||
+      t.includes("unavailable") ||
+      t.includes("timed out") ||
+      t.includes("timeout")
+    ) {
+      return "nuvem";
+    }
+    return "ilegivel";
+  }
+
+  function avisarFalhaDaGaleria(
+    motivo: MotivoFalha,
+    dados: { detalhe: string; tamanhoVideo?: number | null; livre?: number | null; uri: string }
+  ) {
+    // Prefixo do endereço (file, content, ph...) diz muito sobre a origem do
+    // problema e não expõe nada sensível — é o que mais ajuda quando alguém
+    // da equipe manda um print do aviso.
+    const esquema = dados.uri.split(":")[0] || "?";
+    const rodape = `Detalhe: ${dados.detalhe.slice(0, 160)}\nVídeo: ${formatarMB(
+      dados.tamanhoVideo
+    )} · Livre: ${formatarMB(dados.livre)} · Origem: ${esquema}`;
+
+    const textos: Record<MotivoFalha, string> = {
+      espaco:
+        "Seu celular está sem espaço para preparar o vídeo.\n\n" +
+        "O app guarda uma cópia de cada captura que ainda não foi enviada. Abra o Histórico: " +
+        "enviar (ou cancelar) as capturas pendentes libera esse espaço.",
+      nuvem:
+        "Esse vídeo não está baixado no aparelho, parece estar salvo só na nuvem.\n\n" +
+        "Abra ele na galeria até carregar por completo, ou conecte numa rede melhor, e tente de novo.",
+      ilegivel:
+        "Não foi possível preparar o vídeo selecionado.\n\n" +
+        "Tente escolher de novo. Se continuar, grave pela câmera do próprio app, " +
+        "que não depende da galeria.",
+    };
+
+    console.log(
+      `[RecordVideo] falha ao preparar vídeo da galeria: motivo=${motivo} esquema=${esquema} ` +
+        `tamanho=${dados.tamanhoVideo ?? "?"} livre=${dados.livre ?? "?"} detalhe=${dados.detalhe}`
+    );
+    Alert.alert("Não deu para usar esse vídeo", `${textos[motivo]}\n\n${rodape}`);
+  }
+
+  /**
+   * Prepara o vídeo escolhido no seletor: copia para dentro do espaço do app
+   * e devolve o caminho da cópia, ou `null` (já avisando a pessoa) quando não
+   * dá.
    *
-   * Isso existe porque o endereço que o seletor devolve nem sempre é um
+   * A cópia existe porque o endereço que o seletor devolve nem sempre é um
    * arquivo comum: no Android costuma vir como `content://...`, um endereço
    * do provedor de conteúdo do sistema, que `getInfoAsync`/`readAsStringAsync`
-   * não conseguem inspecionar nem ler por posição — `getInfoAsync` responde
-   * `exists: false` mesmo com o vídeo perfeitamente válido, que é exatamente
-   * o "Não foi possível ler o arquivo de vídeo selecionado" aparecendo em
-   * vídeo bom. `copyAsync` resolve esse tipo de endereço pelo provedor do
-   * sistema e grava um arquivo normal no cache do app.
+   * não conseguem inspecionar nem ler por posição. De quebra, protege de o
+   * Android limpar o cache do seletor entre a escolha e o envio (que pode
+   * demorar bastante, se a pessoa estiver sem sinal no curral).
    *
-   * De quebra, a cópia protege de outra falha silenciosa: o arquivo do
-   * seletor vive num cache temporário que o Android pode limpar a qualquer
-   * momento, inclusive entre escolher o vídeo e terminar de enviá-lo (o que
-   * pode demorar bastante, se a pessoa estiver sem sinal no curral).
+   * Quando a cópia falha, NÃO seguimos com o endereço original só porque o
+   * seletor informou um tamanho: um `content://` que não pôde ser copiado
+   * também não vai poder ser lido em blocos na hora de enviar, e o envio
+   * quebraria bem mais tarde, longe da causa. Só reaproveitamos o original
+   * quando ele é, comprovadamente, um arquivo legível.
    */
-  async function copiarParaOApp(uri: string, fileName?: string | null): Promise<string | null> {
+  async function prepararVideoDaGaleria(
+    asset: ImagePicker.ImagePickerAsset
+  ): Promise<string | null> {
+    const livre = await espacoLivreBytes();
+    const tamanho = asset.fileSize ?? null;
+
+    // Checagem prévia: a cópia precisa de espaço livre do tamanho do vídeo.
+    // A margem de 10% cobre o que o sistema reserva por fora do arquivo.
+    if (livre !== null && tamanho !== null && livre < tamanho * 1.1) {
+      avisarFalhaDaGaleria("espaco", {
+        detalhe: "espaço livre insuficiente para copiar o vídeo (checado antes de tentar)",
+        tamanhoVideo: tamanho,
+        livre,
+        uri: asset.uri,
+      });
+      return null;
+    }
+
+    const nome = (asset.fileName ?? asset.uri.split("/").pop() ?? "video.mp4").replace(/[^\w.-]/g, "_");
+    const destino = `${FileSystem.cacheDirectory}galeria-${Date.now()}-${nome}`;
     try {
-      const nome = (fileName ?? uri.split("/").pop() ?? "video.mp4").replace(/[^\w.-]/g, "_");
-      const destino = `${FileSystem.cacheDirectory}galeria-${Date.now()}-${nome}`;
-      await FileSystem.copyAsync({ from: uri, to: destino });
+      await FileSystem.copyAsync({ from: asset.uri, to: destino });
       return destino;
-    } catch {
+    } catch (erro) {
+      const detalhe = erro instanceof Error ? erro.message : String(erro);
+
+      // A cópia falhou: o endereço original só serve se for mesmo um arquivo
+      // legível (ex.: o seletor já tinha deixado uma cópia no cache dele).
+      const info = await FileSystem.getInfoAsync(asset.uri).catch(() => null);
+      if (info?.exists && (info.size ?? 0) > 0) {
+        console.log(
+          `[RecordVideo] cópia falhou (${detalhe}), mas o endereço original é legível — seguindo com ele.`
+        );
+        return asset.uri;
+      }
+
+      avisarFalhaDaGaleria(classificarFalhaDeCopia(detalhe), {
+        detalhe,
+        tamanhoVideo: tamanho,
+        livre,
+        uri: asset.uri,
+      });
       return null;
     }
   }
@@ -97,16 +213,20 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     origem: "camera" | "galeria",
     doSeletor?: { sizeBytes?: number | null; fileName?: string | null; durationMs?: number | null }
   ): Promise<SelectedVideo | null> {
-    // O seletor da galeria já entrega tamanho, nome e duração do vídeo; isso
-    // serve de fonte alternativa em vez de depender só do `getInfoAsync`,
-    // que pode falhar por causa do formato do endereço (ver `copiarParaOApp`
-    // acima) sem haver nada de errado com o vídeo em si.
     const info = await FileSystem.getInfoAsync(uri).catch(() => null);
-    const sizeBytes = (info?.exists ? info.size : undefined) ?? doSeletor?.sizeBytes ?? 0;
-    if (!sizeBytes) {
+    // O tamanho do seletor entra só como complemento, quando o arquivo existe
+    // mas o sistema não informou o tamanho. Ele NÃO serve pra decidir que um
+    // endereço ilegível está bom: essa decisão é do `info.exists` (ver o
+    // comentário em `prepararVideoDaGaleria`).
+    const sizeBytes = (info?.exists ? info.size : undefined) ?? (info?.exists ? doSeletor?.sizeBytes : 0) ?? 0;
+    if (!info?.exists || !sizeBytes) {
+      console.log(
+        `[RecordVideo] arquivo final inutilizável: origem=${origem} existe=${info?.exists ?? false} ` +
+          `tamanho=${sizeBytes} uri=${uri.split(":")[0]}`
+      );
       Alert.alert(
-        "Erro",
-        "Não foi possível ler o arquivo de vídeo selecionado. Escolha de novo, ou grave pela câmera do app."
+        "Não deu para usar esse vídeo",
+        "Não foi possível ler o arquivo de vídeo. Tente escolher de novo, ou grave pela câmera do próprio app."
       );
       return null;
     }
@@ -236,11 +356,11 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     // pela galeria), antes de copiar — a cópia tem data de agora, não a da
     // gravação.
     const recordedAt = await obterHorarioRealGaleria(asset);
-    // Trabalha sempre com uma cópia dentro do app: o endereço devolvido pelo
-    // seletor pode não ser um arquivo que dá pra ler direto (ver
-    // `copiarParaOApp`). Se a cópia falhar, ainda tentamos o endereço
-    // original em vez de desistir na hora.
-    const uriLocal = (await copiarParaOApp(asset.uri, asset.fileName)) ?? asset.uri;
+    // Trabalha sempre com uma cópia dentro do app (ver
+    // `prepararVideoDaGaleria`); quando não dá, a própria função já explica
+    // o motivo pra pessoa e devolve `null`.
+    const uriLocal = await prepararVideoDaGaleria(asset);
+    if (!uriLocal) return;
     const selected = await buildSelectedVideo(uriLocal, recordedAt, "galeria", {
       sizeBytes: asset.fileSize,
       fileName: asset.fileName,

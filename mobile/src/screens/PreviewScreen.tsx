@@ -33,6 +33,7 @@ import { enqueueCapture } from "@/services/offlineQueue";
 import { registrarNoHistorico } from "@/services/historicoEnvios";
 import { gerarMiniatura } from "@/services/thumbnails";
 import { obterNomeOperador } from "@/services/operador";
+import { sincronizarItem, temWifiConectado } from "@/services/syncEngine";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Preview">;
 type CampoRevisao = "peso" | "observacoes";
@@ -199,6 +200,31 @@ export function PreviewScreen({ navigation, route }: Props) {
         "Erro ao salvar",
         "Não foi possível salvar o vídeo para envio. Verifique o espaço livre no aparelho e tente novamente."
       );
+      return;
+    }
+
+    // Com wifi, ninguém precisa ficar olhando uma barra de progresso: o envio
+    // já roda sozinho em segundo plano e o Histórico mostra o andamento de
+    // cada captura (barra por item e o aviso de "processando no servidor" —
+    // ver `HistoricoScreen.tsx`). Mandar a pessoa direto pra lá devolve o
+    // celular pra ela na hora, pra ir pro próximo cocho sem esperar o envio
+    // terminar.
+    //
+    // Sem wifi o destino continua sendo a tela de envio: ali ela explica que
+    // o vídeo está salvo e vai subir sozinho quando houver conexão, que é
+    // uma informação que a pessoa precisa ver na hora, não descobrir depois.
+    //
+    // `reset` em vez de `navigate` porque a pilha até aqui (Cochos -> Tipo de
+    // alimento -> Nova captura -> Gravar -> Prévia) não faz mais sentido
+    // depois de confirmar: o "voltar" do Histórico leva ao Lobby, não de
+    // volta pra uma prévia de um vídeo que já foi enviado.
+    const temWifi = await temWifiConectado().catch(() => false);
+    if (temWifi) {
+      // Prioriza esta captura em vez de esperar o próximo gatilho automático.
+      // Sem `await`: a navegação não espera o upload. `syncEngine` já evita
+      // envio duplicado se um gatilho automático pegar o mesmo item.
+      sincronizarItem(captureId).catch(() => undefined);
+      navigation.reset({ index: 1, routes: [{ name: "Lobby" }, { name: "Historico" }] });
       return;
     }
 
