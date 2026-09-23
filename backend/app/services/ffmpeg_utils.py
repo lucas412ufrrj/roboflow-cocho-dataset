@@ -119,7 +119,13 @@ async def normalize_to_h264_mp4(src: Path, dst: Path) -> None:
       cada uma carrega seus próprios buffers de quadro.
     - resolução limitada a `NORMALIZACAO_MAX_WIDTH/HEIGHT`, com
       `force_original_aspect_ratio=decrease` pra nunca distorcer nem ampliar
-      um vídeo que já seja menor.
+      um vídeo que já seja menor, e `force_divisible_by=2` pra garantir que a
+      dimensão calculada pelo ajuste de aspecto saia sempre PAR — o `libx264`
+      recusa qualquer largura/altura ímpar ("width not divisible by 2"), e
+      isso não é um caso raro: todo vídeo em retrato (o app inteiro é
+      travado em `orientation: portrait`, então é o jeito normal de gravar)
+      cai nessa conta ao ser encaixado numa caixa 1280x720 — ex.: um vídeo
+      720x1280 vira 405x720 sem essa trava, e crasha o encoder.
     - `-preset veryfast` no lugar de `fast`: menos lookahead de quadros em
       memória, e a compressão pior não importa aqui (o arquivo é temporário,
       só serve pra extrair quadros e é apagado no fim da captura).
@@ -137,6 +143,7 @@ async def normalize_to_h264_mp4(src: Path, dst: Path) -> None:
         f"scale='min({settings.NORMALIZACAO_MAX_WIDTH},iw)'"
         f":'min({settings.NORMALIZACAO_MAX_HEIGHT},ih)'"
         ":force_original_aspect_ratio=decrease"
+        ":force_divisible_by=2"
     )
     cmd = [
         "ffmpeg",
@@ -187,11 +194,19 @@ async def reencode_for_camera_origin(
     Como a origem="camera" sempre produz um vídeo curto e de duração fixa
     (~`RECORDING_DURATION_S`, ver `config.py`), o custo extra de reencodar
     sempre (em vez de só quando o codec pede) é pequeno e previsível.
+
+    Mesma trava de `force_divisible_by=2` de `normalize_to_h264_mp4` acima —
+    aqui é ainda mais crítica, porque TODO vídeo com origem="camera" é
+    gravado em retrato (app travado em `orientation: portrait`) e passa
+    incondicionalmente por este reencode.
     """
     _ensure_binaries()
     dst.parent.mkdir(parents=True, exist_ok=True)
     threads = str(max(1, get_settings().FFMPEG_THREADS))
-    escala = f"scale='min({max_width},iw)':'min({max_height},ih)':force_original_aspect_ratio=decrease"
+    escala = (
+        f"scale='min({max_width},iw)':'min({max_height},ih)'"
+        ":force_original_aspect_ratio=decrease:force_divisible_by=2"
+    )
     cmd = [
         "ffmpeg",
         "-y",

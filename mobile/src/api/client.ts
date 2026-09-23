@@ -26,6 +26,13 @@ const TIMEOUT_INIT_MS = 30 * 1000;
 const TIMEOUT_BLOCO_MS = 60 * 1000;
 const TIMEOUT_CONCLUIR_MS = 5 * 60 * 1000; // mesmo processamento pesado do envio único
 
+// Quantas vezes tentar de novo, na hora, uma etapa do envio em blocos
+// (init/bloco/complete) antes de desistir e deixar pro próximo gatilho
+// externo (abrir o app, voltar ao primeiro plano, wifi conectar) — ver
+// `comRetryDeRede` mais abaixo.
+const TENTATIVAS_REDE_POR_ETAPA = 3;
+const ESPERA_ENTRE_TENTATIVAS_REDE_MS = 3000;
+
 export class ApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message);
@@ -593,13 +600,50 @@ async function concluirSessaoEmBlocos(captureId: string): Promise<CaptureRespons
 }
 
 /**
+ * Reexecuta uma etapa do envio em blocos (init/bloco/complete) até
+ * `TENTATIVAS_REDE_POR_ETAPA` vezes, com uma pausa curta entre elas, antes
+ * de propagar o erro. Existe pra cobrir uma queda MOMENTÂNEA de sinal —
+ * comum em campo — sem depender do próximo gatilho externo (abrir o app,
+ * voltar ao primeiro plano, wifi conectar) pra retomar, que só aconteceria
+ * minutos ou horas depois e faria a pessoa ver "Falha de rede" mesmo quando
+ * a queda durou só alguns segundos.
+ *
+ * Repetir cada etapa aqui é seguro: `/init` e `/complete` são idempotentes
+ * por `capture_id` no backend (reenviar não duplica nada), e reenviar um
+ * bloco que na verdade já tinha chegado só grava o mesmo conteúdo de novo
+ * por cima. Não distingue o tipo de erro de propósito — tanto uma queda de
+ * rede quanto um 5xx passageiro do backend se beneficiam da mesma espera
+ * curta antes de tentar de novo.
+ */
+async function comRetryDeRede<T>(tarefa: () => Promise<T>, descricao: string): Promise<T> {
+  let ultimoErro: unknown;
+  for (let tentativa = 1; tentativa <= TENTATIVAS_REDE_POR_ETAPA; tentativa++) {
+    try {
+      return await tarefa();
+    } catch (erro) {
+      ultimoErro = erro;
+      console.log(
+        `[uploadCaptureEmBlocos] ${descricao} falhou (tentativa ${tentativa}/${TENTATIVAS_REDE_POR_ETAPA}):`,
+        erro
+      );
+      if (tentativa < TENTATIVAS_REDE_POR_ETAPA) {
+        await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_TENTATIVAS_REDE_MS));
+      }
+    }
+  }
+  throw ultimoErro;
+}
+
+/**
  * Envio retomável em blocos, para vídeos grandes (ver
  * `LIMIAR_ENVIO_EM_BLOCOS_BYTES`). Em vez de mandar o vídeo inteiro numa só
  * requisição, divide em blocos de `TAMANHO_BLOCO_BYTES` e manda um de cada
  * vez — se a conexão cair no meio (comum em área rural/de campo), a
  * PRÓXIMA tentativa (disparada pelo `syncEngine` como qualquer erro normal
  * de envio) pergunta ao backend quais blocos já chegaram e só reenvia o
- * resto, em vez de recomeçar o vídeo inteiro do zero.
+ * resto, em vez de recomeçar o vídeo inteiro do zero. Cada etapa individual
+ * (init/bloco/complete) também tenta de novo sozinha algumas vezes antes
+ * disso — ver `comRetryDeRede`.
  */
 async function uploadCaptureEmBlocos({
   captureId,
@@ -619,7 +663,10 @@ async function uploadCaptureEmBlocos({
     `[uploadCaptureEmBlocos] iniciando envio em blocos: captureId=${captureId} tamanho=${video.sizeBytes} bytes totalBlocos=${totalBlocos}`
   );
 
-  const init = await iniciarSessaoEmBlocos({ captureId, video, form, pesoKg, totalBlocos });
+  const init = await comRetryDeRede(
+    () => iniciarSessaoEmBlocos({ captureId, video, form, pesoKg, totalBlocos }),
+    "iniciar sessão"
+  );
   if (init.status === "already_processed" && init.result) {
     console.log(`[uploadCaptureEmBlocos] captureId=${captureId} já processado antes, pulando envio.`);
     onProgress?.(1);
@@ -640,7 +687,10 @@ async function uploadCaptureEmBlocos({
         position,
         length,
       });
-      await enviarBloco({ captureId, index, base64 });
+      await comRetryDeRede(
+        () => enviarBloco({ captureId, index, base64 }),
+        `bloco ${index + 1}/${totalBlocos}`
+      );
     }
     onProgress?.((index + 1) / totalBlocos);
   }
@@ -649,5 +699,5 @@ async function uploadCaptureEmBlocos({
   // rodando o processamento pesado (mesmo pipeline do envio único), sem mais
   // nada pra reportar como progresso até a resposta voltar.
   onProcessingStart?.();
-  return concluirSessaoEmBlocos(captureId);
+  return comRetryDeRede(() => concluirSessaoEmBlocos(captureId), "concluir sessão");
 }
