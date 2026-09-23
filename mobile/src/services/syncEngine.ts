@@ -11,6 +11,11 @@
  * sincronização em segundo plano e um toque manual de "tentar novamente"
  * disparando quase ao mesmo tempo — não gera frames duplicados no dataset.
  * Ainda assim, `itemsEmEnvio` evita a maior parte dessas corridas no cliente.
+ *
+ * Além disso, o envio de fato (upload + espera do processamento no backend)
+ * é serializado por aparelho: nunca mais de um vídeo saindo ao mesmo tempo
+ * deste celular, não importa se veio da fila em segundo plano ou de um
+ * disparo direto (`sincronizarItem`) — ver `filaDeEnvio` mais abaixo.
  */
 import NetInfo from "@react-native-community/netinfo";
 
@@ -160,6 +165,31 @@ async function limparEnviosZumbis(): Promise<void> {
   if (houveMudanca) notificarMudanca();
 }
 
+/**
+ * Fila que serializa o trabalho pesado de cada envio (upload do vídeo +
+ * espera o backend terminar de processar) — nunca mais de um por vez saindo
+ * deste aparelho. Ficou necessária quando a Prévia passou a liberar a pessoa
+ * pra gravar/confirmar uma nova captura assim que a anterior é confirmada
+ * (em vez de prendê-la na tela de envio até terminar, ver changelog
+ * 2026-09-23): sem isso, duas capturas confirmadas em sequência disparariam
+ * dois envios ao mesmo tempo — dois vídeos sendo normalizados (ffmpeg),
+ * tendo frames extraídos e subindo pro Roboflow simultaneamente no mesmo
+ * backend, que já opera perto do limite de memória do Render (ver decisão
+ * sobre o OOM). `itemsEmEnvio`, logo abaixo, continua reservando a captura
+ * IMEDIATAMENTE — antes de entrar nesta fila — então `sincronizarFila` e a
+ * tela de Histórico continuam sabendo corretamente que aquele item já está
+ * "sendo tratado" enquanto espera a vez; só a ORDEM de execução muda, nunca
+ * a resposta pra quem chamou. Mesmo padrão de `withLock` em
+ * `offlineQueue.ts`.
+ */
+let filaDeEnvio: Promise<unknown> = Promise.resolve();
+
+function enfileirarEnvio<T>(tarefa: () => Promise<T>): Promise<T> {
+  const resultado = filaDeEnvio.then(tarefa, tarefa);
+  filaDeEnvio = resultado.catch(() => undefined);
+  return resultado;
+}
+
 async function enviarItem(
   item: QueueItem,
   onProgress?: (fracao: number) => void
@@ -168,6 +198,27 @@ async function enviarItem(
   itemsEmEnvio.add(item.captureId);
   progressoPorItem.set(item.captureId, 0);
 
+  try {
+    return await enfileirarEnvio(() => enviarItemReservado(item, onProgress));
+  } finally {
+    itemsEmEnvio.delete(item.captureId);
+    progressoPorItem.delete(item.captureId);
+    if (itemsProcessando.delete(item.captureId)) {
+      notificarProcessando(item.captureId, false);
+    }
+    notificarMudanca();
+  }
+}
+
+/**
+ * O envio de fato — só roda depois de esperar a vez em `filaDeEnvio`. Split
+ * de `enviarItem` só pra isso: o resto (reserva em `itemsEmEnvio`, limpeza
+ * no `finally`) precisa acontecer de imediato, não depois de esperar a fila.
+ */
+async function enviarItemReservado(
+  item: QueueItem,
+  onProgress?: (fracao: number) => void
+): Promise<CaptureResponse | null> {
   await updateQueueItem(item.captureId, { status: "enviando" });
   notificarMudanca();
 
@@ -231,13 +282,6 @@ async function enviarItem(
       notificarFalhaPersistente({ pesoKg: item.form.pesoKg, cochoNome: item.form.cocho.nome, tentativas });
     }
     return null;
-  } finally {
-    itemsEmEnvio.delete(item.captureId);
-    progressoPorItem.delete(item.captureId);
-    if (itemsProcessando.delete(item.captureId)) {
-      notificarProcessando(item.captureId, false);
-    }
-    notificarMudanca();
   }
 }
 
