@@ -62,14 +62,52 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     return horarioPorDataDoArquivo(asset.uri);
   }
 
+  /**
+   * Copia o arquivo escolhido no seletor da galeria para dentro do espaço do
+   * app, devolvendo o caminho da cópia (ou `null` se a cópia falhar).
+   *
+   * Isso existe porque o endereço que o seletor devolve nem sempre é um
+   * arquivo comum: no Android costuma vir como `content://...`, um endereço
+   * do provedor de conteúdo do sistema, que `getInfoAsync`/`readAsStringAsync`
+   * não conseguem inspecionar nem ler por posição — `getInfoAsync` responde
+   * `exists: false` mesmo com o vídeo perfeitamente válido, que é exatamente
+   * o "Não foi possível ler o arquivo de vídeo selecionado" aparecendo em
+   * vídeo bom. `copyAsync` resolve esse tipo de endereço pelo provedor do
+   * sistema e grava um arquivo normal no cache do app.
+   *
+   * De quebra, a cópia protege de outra falha silenciosa: o arquivo do
+   * seletor vive num cache temporário que o Android pode limpar a qualquer
+   * momento, inclusive entre escolher o vídeo e terminar de enviá-lo (o que
+   * pode demorar bastante, se a pessoa estiver sem sinal no curral).
+   */
+  async function copiarParaOApp(uri: string, fileName?: string | null): Promise<string | null> {
+    try {
+      const nome = (fileName ?? uri.split("/").pop() ?? "video.mp4").replace(/[^\w.-]/g, "_");
+      const destino = `${FileSystem.cacheDirectory}galeria-${Date.now()}-${nome}`;
+      await FileSystem.copyAsync({ from: uri, to: destino });
+      return destino;
+    } catch {
+      return null;
+    }
+  }
+
   async function buildSelectedVideo(
     uri: string,
     recordedAt: number | undefined,
-    origem: "camera" | "galeria"
+    origem: "camera" | "galeria",
+    doSeletor?: { sizeBytes?: number | null; fileName?: string | null; durationMs?: number | null }
   ): Promise<SelectedVideo | null> {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (!info.exists) {
-      Alert.alert("Erro", "Não foi possível ler o arquivo de vídeo selecionado.");
+    // O seletor da galeria já entrega tamanho, nome e duração do vídeo; isso
+    // serve de fonte alternativa em vez de depender só do `getInfoAsync`,
+    // que pode falhar por causa do formato do endereço (ver `copiarParaOApp`
+    // acima) sem haver nada de errado com o vídeo em si.
+    const info = await FileSystem.getInfoAsync(uri).catch(() => null);
+    const sizeBytes = (info?.exists ? info.size : undefined) ?? doSeletor?.sizeBytes ?? 0;
+    if (!sizeBytes) {
+      Alert.alert(
+        "Erro",
+        "Não foi possível ler o arquivo de vídeo selecionado. Escolha de novo, ou grave pela câmera do app."
+      );
       return null;
     }
 
@@ -78,11 +116,11 @@ export function RecordVideoScreen({ navigation, route }: Props) {
       // Duração exata é sempre confirmada na Prévia via expo-video (ver
       // `PreviewScreen.tsx`); aqui é só um valor inicial pra exibição
       // enquanto isso não carrega. Pra vídeo de câmera, `RECORDING_DURATION_S`
-      // já é uma estimativa bem próxima da real, diferente da galeria (0,
-      // porque ali a duração é livre e não dá pra estimar).
-      durationMs: origem === "camera" ? RECORDING_DURATION_S * 1000 : 0,
-      sizeBytes: info.size ?? 0,
-      fileName: uri.split("/").pop() ?? "video.mp4",
+      // já é uma estimativa bem próxima da real; pra galeria, usamos a
+      // duração que o próprio seletor informou, quando ele informa.
+      durationMs: origem === "camera" ? RECORDING_DURATION_S * 1000 : (doSeletor?.durationMs ?? 0),
+      sizeBytes,
+      fileName: doSeletor?.fileName ?? uri.split("/").pop() ?? "video.mp4",
       mimeType: "video/mp4",
       recordedAt,
       origem,
@@ -194,8 +232,20 @@ export function RecordVideoScreen({ navigation, route }: Props) {
     if (resultado.canceled || !resultado.assets?.[0]) return;
 
     const asset = resultado.assets[0];
+    // O horário real é lido do asset ORIGINAL (é ele que o sistema conhece
+    // pela galeria), antes de copiar — a cópia tem data de agora, não a da
+    // gravação.
     const recordedAt = await obterHorarioRealGaleria(asset);
-    const selected = await buildSelectedVideo(asset.uri, recordedAt, "galeria");
+    // Trabalha sempre com uma cópia dentro do app: o endereço devolvido pelo
+    // seletor pode não ser um arquivo que dá pra ler direto (ver
+    // `copiarParaOApp`). Se a cópia falhar, ainda tentamos o endereço
+    // original em vez de desistir na hora.
+    const uriLocal = (await copiarParaOApp(asset.uri, asset.fileName)) ?? asset.uri;
+    const selected = await buildSelectedVideo(uriLocal, recordedAt, "galeria", {
+      sizeBytes: asset.fileSize,
+      fileName: asset.fileName,
+      durationMs: asset.duration,
+    });
     if (selected) {
       navigation.navigate("Preview", { form, video: selected });
     }
