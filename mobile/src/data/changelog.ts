@@ -16,6 +16,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    versao: "2026-09-23",
+    data: "23/09/2026",
+    itens: [
+      "Se um upload a partir da galeria falhar, o aviso vai dizer explicitamente qual é o problema. Tire um print e me envie.",
+      "Agora, ao fazer o upload online, você é direcionado direto para o Histórico (ainda dá pra checar o status do envio).",
+    ],
+  },
+  {
     versao: "2026-09-22",
     data: "22/09/2026",
     itens: [
