@@ -8,6 +8,7 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 
+import { obterDeviceId } from "@/services/deviceId";
 import type { ApiErrorBody, CaptureFormData, CaptureResponse, SelectedVideo } from "@/types/capture";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
@@ -40,6 +41,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Monta os headers de toda chamada ao backend, sempre incluindo
+ * `X-Device-Id` (ver `services/deviceId.ts`) — diagnóstico por aparelho e
+ * chave do limitador de taxa no backend, nunca autenticação de pessoa.
+ * `extra` entra por cima (permite acrescentar `X-Admin-Api-Key`,
+ * `Content-Type`, etc. sem repetir as duas linhas de sempre em cada função).
+ */
+async function headersComAuth(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  return {
+    "X-Backend-Api-Key": BACKEND_API_KEY,
+    "X-Device-Id": await obterDeviceId(),
+    ...extra,
+  };
+}
+
 export interface AppInfo {
   app: string;
   roboflow_workspace: string;
@@ -59,7 +75,7 @@ const TIMEOUT_APP_INFO_MS = 8 * 1000;
 export async function getAppInfo(): Promise<AppInfo> {
   const response = await fetchComTimeout(
     `${API_BASE_URL}/`,
-    { method: "GET" },
+    { method: "GET", headers: { "X-Device-Id": await obterDeviceId() } },
     TIMEOUT_APP_INFO_MS,
     "Tempo esgotado ao consultar informações do backend."
   );
@@ -104,12 +120,11 @@ export async function registrarCochoNoBackend(cocho: CochoPayload, chaveAdmin?: 
   if (!API_BASE_URL) {
     throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
   }
-  const headers: Record<string, string> = {
-    "X-Backend-Api-Key": BACKEND_API_KEY,
+  const headers = await headersComAuth({
     Accept: "application/json",
     "Content-Type": "application/json",
-  };
-  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+    ...(chaveAdmin ? { "X-Admin-Api-Key": chaveAdmin } : {}),
+  });
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/cochos`,
     {
@@ -141,8 +156,10 @@ export async function excluirCochoNoBackend(id: string, chaveAdmin?: string): Pr
   if (!API_BASE_URL) {
     throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
   }
-  const headers: Record<string, string> = { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" };
-  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const headers = await headersComAuth({
+    Accept: "application/json",
+    ...(chaveAdmin ? { "X-Admin-Api-Key": chaveAdmin } : {}),
+  });
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/cochos/${id}`,
     { method: "DELETE", headers },
@@ -175,7 +192,7 @@ export async function listarCochosNoBackend(): Promise<CochoPayload[]> {
   }
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/cochos`,
-    { method: "GET", headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" } },
+    { method: "GET", headers: await headersComAuth({ Accept: "application/json" }) },
     TIMEOUT_COCHO_MS,
     "Tempo limite excedido ao buscar a lista de cochos."
   );
@@ -217,12 +234,11 @@ export async function registrarTipoAlimentoNoBackend(
   if (!API_BASE_URL) {
     throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
   }
-  const headers: Record<string, string> = {
-    "X-Backend-Api-Key": BACKEND_API_KEY,
+  const headers = await headersComAuth({
     Accept: "application/json",
     "Content-Type": "application/json",
-  };
-  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+    ...(chaveAdmin ? { "X-Admin-Api-Key": chaveAdmin } : {}),
+  });
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/tipos-alimento`,
     {
@@ -251,8 +267,10 @@ export async function excluirTipoAlimentoNoBackend(id: string, chaveAdmin?: stri
   if (!API_BASE_URL) {
     throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
   }
-  const headers: Record<string, string> = { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" };
-  if (chaveAdmin) headers["X-Admin-Api-Key"] = chaveAdmin;
+  const headers = await headersComAuth({
+    Accept: "application/json",
+    ...(chaveAdmin ? { "X-Admin-Api-Key": chaveAdmin } : {}),
+  });
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/tipos-alimento/${id}`,
     { method: "DELETE", headers },
@@ -283,7 +301,7 @@ export async function listarTiposAlimentoNoBackend(): Promise<TipoAlimentoPayloa
   }
   const response = await fetchComTimeout(
     `${API_BASE_URL}/api/tipos-alimento`,
-    { method: "GET", headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" } },
+    { method: "GET", headers: await headersComAuth({ Accept: "application/json" }) },
     TIMEOUT_TIPO_ALIMENTO_MS,
     "Tempo limite excedido ao buscar a lista de tipos de alimento."
   );
@@ -343,19 +361,22 @@ export function uploadCapture(params: UploadCaptureParams): Promise<CaptureRespo
  * eventos de progresso de upload de forma confiável em RN/Expo). Usado para
  * vídeos abaixo do limiar de envio em blocos.
  */
-function uploadCaptureUnica({
+async function uploadCaptureUnica({
   captureId,
   video,
   form,
   onProgress,
   onProcessingStart,
 }: UploadCaptureParams): Promise<CaptureResponse> {
-  return new Promise((resolve, reject) => {
-    if (!API_BASE_URL) {
-      reject(new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada."));
-      return;
-    }
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+  // Buscado ANTES do `new Promise` abaixo: XMLHttpRequest não tem uma forma
+  // async de montar headers, então o id precisa estar em mãos antes de abrir
+  // a requisição (ver `headersComAuth`/`obterDeviceId` acima).
+  const deviceId = await obterDeviceId();
 
+  return new Promise((resolve, reject) => {
     const pesoKg = parsePesoKg(form.pesoKg);
 
     console.log(
@@ -402,6 +423,7 @@ function uploadCaptureUnica({
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE_URL}/api/captures`);
     xhr.setRequestHeader("X-Backend-Api-Key", BACKEND_API_KEY);
+    xhr.setRequestHeader("X-Device-Id", deviceId);
     xhr.setRequestHeader("Accept", "application/json");
 
     xhr.upload.onprogress = (event) => {
@@ -548,7 +570,7 @@ async function iniciarSessaoEmBlocos(params: {
     `${API_BASE_URL}/api/captures/init`,
     {
       method: "POST",
-      headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" },
+      headers: await headersComAuth({ Accept: "application/json" }),
       body: formData,
     },
     TIMEOUT_INIT_MS,
@@ -568,11 +590,7 @@ async function enviarBloco(params: { captureId: string; index: number; base64: s
     `${API_BASE_URL}/api/captures/${params.captureId}/chunks/${params.index}`,
     {
       method: "POST",
-      headers: {
-        "X-Backend-Api-Key": BACKEND_API_KEY,
-        Accept: "application/json",
-        "Content-Type": "text/plain",
-      },
+      headers: await headersComAuth({ Accept: "application/json", "Content-Type": "text/plain" }),
       body: params.base64,
     },
     TIMEOUT_BLOCO_MS,
@@ -590,7 +608,7 @@ async function concluirSessaoEmBlocos(captureId: string): Promise<CaptureRespons
     `${API_BASE_URL}/api/captures/${captureId}/complete`,
     {
       method: "POST",
-      headers: { "X-Backend-Api-Key": BACKEND_API_KEY, Accept: "application/json" },
+      headers: await headersComAuth({ Accept: "application/json" }),
     },
     TIMEOUT_CONCLUIR_MS,
     "Tempo limite excedido ao concluir o envio."

@@ -16,6 +16,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    versao: "2026-09-24",
+    data: "24/09/2026",
+    itens: [
+      "A fim de analisar melhor os bugs e erros, agora o backend usa um UUID do seu dispositivo para monitorar de onde eles vêm.",
+    ],
+  },
+  {
     versao: "2026-09-23",
     data: "23/09/2026",
     itens: [

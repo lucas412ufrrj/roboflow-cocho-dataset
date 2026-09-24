@@ -69,11 +69,18 @@ async def create_capture(
     ),
     capture_service: CaptureService = Depends(get_capture_service),
 ) -> CaptureResponse:
+    # Ver `X-Device-Id` em `core/security.py` — UUID por instalação do app,
+    # não validado (só diagnóstico), "desconhecido" numa build antiga que
+    # ainda não manda o header.
+    device_id = request.headers.get("X-Device-Id") or "desconhecido"
+
     # Log o mais cedo possível na requisição: se o processo estiver perto do
     # teto de memória do Render ANTES mesmo de ler o vídeo, isso é sinal de
     # memória se acumulando entre requisições anteriores (o processo não
     # reinicia sozinho), não de custo deste request específico.
-    logger.info("create_capture: entrada da rota, pico memória: %.1fMB", _peak_rss_mb())
+    logger.info(
+        "create_capture: entrada da rota, device_id=%s pico memória: %.1fMB", device_id, _peak_rss_mb()
+    )
 
     try:
         form = CaptureFormInput(
@@ -115,7 +122,9 @@ async def create_capture(
     except VideoValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Falha inesperada ao processar capture_id=%s", resolved_capture_id)
+        logger.exception(
+            "Falha inesperada ao processar capture_id=%s device_id=%s", resolved_capture_id, device_id
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Falha inesperada ao processar o vídeo. Tente novamente.",

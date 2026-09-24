@@ -124,9 +124,12 @@ async def init_chunked_upload(
     except ChunkedUploadError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
+    # Ver `X-Device-Id` em `core/security.py` — UUID por instalação do app,
+    # não validado (só diagnóstico), "desconhecido" numa build antiga.
+    device_id = request.headers.get("X-Device-Id") or "desconhecido"
     logger.info(
-        "init_chunked_upload: capture_id=%s total_chunks=%d já recebidos=%d",
-        capture_id, total_chunks, len(received_chunks),
+        "init_chunked_upload: capture_id=%s device_id=%s total_chunks=%d já recebidos=%d",
+        capture_id, device_id, total_chunks, len(received_chunks),
     )
     return ChunkedUploadInitResponse(status="in_progress", received_chunks=received_chunks)
 
@@ -200,9 +203,12 @@ async def complete_chunked_upload(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     form = CaptureFormInput.model_validate(manifest["form"])
+    # Ver `X-Device-Id` em `core/security.py` — UUID por instalação do app,
+    # não validado (só diagnóstico), "desconhecido" numa build antiga.
+    device_id = request.headers.get("X-Device-Id") or "desconhecido"
     logger.info(
-        "complete_chunked_upload: capture_id=%s montando vídeo (%.1fMB) a partir de %d blocos, direto pro storage",
-        capture_id, manifest["total_size"] / 1024 / 1024, manifest["total_chunks"],
+        "complete_chunked_upload: capture_id=%s device_id=%s montando vídeo (%.1fMB) a partir de %d blocos, direto pro storage",
+        capture_id, device_id, manifest["total_size"] / 1024 / 1024, manifest["total_chunks"],
     )
 
     try:
@@ -226,7 +232,9 @@ async def complete_chunked_upload(
     except VideoValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Falha inesperada ao concluir envio em blocos capture_id=%s", capture_id)
+        logger.exception(
+            "Falha inesperada ao concluir envio em blocos capture_id=%s device_id=%s", capture_id, device_id
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Falha inesperada ao processar o vídeo. Tente novamente.",
