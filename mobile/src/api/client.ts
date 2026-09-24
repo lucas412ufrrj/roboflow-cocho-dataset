@@ -618,6 +618,22 @@ async function concluirSessaoEmBlocos(captureId: string): Promise<CaptureRespons
 }
 
 /**
+ * Detecta especificamente o 409 "sessão de envio não encontrada" que o
+ * backend devolve quando o manifesto da sessão em blocos sumiu no meio do
+ * envio — hoje o motivo mais provável é o processo do backend no Render ter
+ * reiniciado (deploy, ou o free tier reciclando o processo), já que o
+ * armazenamento da sessão vive só no disco efêmero daquele processo (ver
+ * `chunked_upload_service.py`). Precisa ser distinguido de um erro de rede
+ * comum porque a RECEITA é diferente: rede pede só esperar e repetir a MESMA
+ * requisição; sessão perdida nunca vai ter sucesso repetindo a mesma
+ * requisição — precisa chamar `/init` de novo primeiro (é o que a própria
+ * mensagem de erro do backend instrui).
+ */
+function ehSessaoPerdida(erro: unknown): boolean {
+  return erro instanceof ApiError && erro.status === 409 && /sessão de envio não encontrada/i.test(erro.message);
+}
+
+/**
  * Reexecuta uma etapa do envio em blocos (init/bloco/complete) até
  * `TENTATIVAS_REDE_POR_ETAPA` vezes, com uma pausa curta entre elas, antes
  * de propagar o erro. Existe pra cobrir uma queda MOMENTÂNEA de sinal —
@@ -632,6 +648,11 @@ async function concluirSessaoEmBlocos(captureId: string): Promise<CaptureRespons
  * por cima. Não distingue o tipo de erro de propósito — tanto uma queda de
  * rede quanto um 5xx passageiro do backend se beneficiam da mesma espera
  * curta antes de tentar de novo.
+ *
+ * Exceção: `ehSessaoPerdida` desiste na hora, sem gastar as demais
+ * tentativas — repetir a mesma requisição sem sessão dá o mesmo 409 toda
+ * vez, então quem chama (`uploadCaptureEmBlocos`) que precisa reagir
+ * chamando `/init` de novo, não esta função.
  */
 async function comRetryDeRede<T>(tarefa: () => Promise<T>, descricao: string): Promise<T> {
   let ultimoErro: unknown;
@@ -644,6 +665,7 @@ async function comRetryDeRede<T>(tarefa: () => Promise<T>, descricao: string): P
         `[uploadCaptureEmBlocos] ${descricao} falhou (tentativa ${tentativa}/${TENTATIVAS_REDE_POR_ETAPA}):`,
         erro
       );
+      if (ehSessaoPerdida(erro)) break;
       if (tentativa < TENTATIVAS_REDE_POR_ETAPA) {
         await new Promise((resolve) => setTimeout(resolve, ESPERA_ENTRE_TENTATIVAS_REDE_MS));
       }
@@ -652,35 +674,37 @@ async function comRetryDeRede<T>(tarefa: () => Promise<T>, descricao: string): P
   throw ultimoErro;
 }
 
+// Quantas vezes reiniciar a sessão inteira (chamando `/init` de novo e
+// reenviando os blocos) quando ela é perdida no meio do envio, além da
+// tentativa original — ver `ehSessaoPerdida`. Limitado a 1 pra não entrar
+// num loop tentando pra sempre se o backend estiver caindo repetidamente;
+// nesse caso o erro acaba propagando e o próximo gatilho externo tenta de
+// novo, como já acontecia antes desta correção.
+const MAX_REINICIOS_SESSAO_PERDIDA = 1;
+
 /**
- * Envio retomável em blocos, para vídeos grandes (ver
- * `LIMIAR_ENVIO_EM_BLOCOS_BYTES`). Em vez de mandar o vídeo inteiro numa só
- * requisição, divide em blocos de `TAMANHO_BLOCO_BYTES` e manda um de cada
- * vez — se a conexão cair no meio (comum em área rural/de campo), a
- * PRÓXIMA tentativa (disparada pelo `syncEngine` como qualquer erro normal
- * de envio) pergunta ao backend quais blocos já chegaram e só reenvia o
- * resto, em vez de recomeçar o vídeo inteiro do zero. Cada etapa individual
- * (init/bloco/complete) também tenta de novo sozinha algumas vezes antes
- * disso — ver `comRetryDeRede`.
+ * Faz uma passada completa pelo envio em blocos: abre/retoma a sessão,
+ * manda os blocos que ainda faltam e conclui. Extraído de
+ * `uploadCaptureEmBlocos` pra poder ser chamado de novo do zero quando a
+ * sessão é perdida no meio do caminho (ver `ehSessaoPerdida` ali).
  */
-async function uploadCaptureEmBlocos({
+async function tentarUmaSessaoDeBlocos({
   captureId,
   video,
   form,
+  pesoKg,
+  totalBlocos,
   onProgress,
   onProcessingStart,
-}: UploadCaptureParams): Promise<CaptureResponse> {
-  if (!API_BASE_URL) {
-    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
-  }
-
-  const pesoKg = parsePesoKg(form.pesoKg);
-  const totalBlocos = Math.ceil(video.sizeBytes / TAMANHO_BLOCO_BYTES);
-
-  console.log(
-    `[uploadCaptureEmBlocos] iniciando envio em blocos: captureId=${captureId} tamanho=${video.sizeBytes} bytes totalBlocos=${totalBlocos}`
-  );
-
+}: {
+  captureId: string;
+  video: SelectedVideo;
+  form: CaptureFormData;
+  pesoKg: number;
+  totalBlocos: number;
+  onProgress?: (fractionCompleted: number) => void;
+  onProcessingStart?: () => void;
+}): Promise<CaptureResponse> {
   const init = await comRetryDeRede(
     () => iniciarSessaoEmBlocos({ captureId, video, form, pesoKg, totalBlocos }),
     "iniciar sessão"
@@ -718,4 +742,68 @@ async function uploadCaptureEmBlocos({
   // nada pra reportar como progresso até a resposta voltar.
   onProcessingStart?.();
   return comRetryDeRede(() => concluirSessaoEmBlocos(captureId), "concluir sessão");
+}
+
+/**
+ * Envio retomável em blocos, para vídeos grandes (ver
+ * `LIMIAR_ENVIO_EM_BLOCOS_BYTES`). Em vez de mandar o vídeo inteiro numa só
+ * requisição, divide em blocos de `TAMANHO_BLOCO_BYTES` e manda um de cada
+ * vez — se a conexão cair no meio (comum em área rural/de campo), a
+ * PRÓXIMA tentativa (disparada pelo `syncEngine` como qualquer erro normal
+ * de envio) pergunta ao backend quais blocos já chegaram e só reenvia o
+ * resto, em vez de recomeçar o vídeo inteiro do zero. Cada etapa individual
+ * (init/bloco/complete) também tenta de novo sozinha algumas vezes antes
+ * disso — ver `comRetryDeRede`.
+ *
+ * Se o backend reiniciar no meio do envio (deploy, ou o processo do Render
+ * sendo reciclado), a sessão em blocos — que vive só no disco efêmero
+ * daquele processo — some, e qualquer bloco enviado depois disso volta com
+ * "sessão de envio não encontrada" (409). Em vez de deixar isso estourar
+ * como uma falha visível pra pessoa (que só se resolveria minutos ou horas
+ * depois, no próximo gatilho externo de sincronização), esta função detecta
+ * o caso (`ehSessaoPerdida`) e chama `/init` de novo sozinha, reenviando os
+ * blocos do zero dentro da MESMA tentativa — exatamente a recuperação que o
+ * backend já foi projetado pra suportar (`init_session` é idempotente e
+ * recria o manifesto vazio), só que agora acontece sem precisar de uma nova
+ * tentativa externa.
+ */
+async function uploadCaptureEmBlocos({
+  captureId,
+  video,
+  form,
+  onProgress,
+  onProcessingStart,
+}: UploadCaptureParams): Promise<CaptureResponse> {
+  if (!API_BASE_URL) {
+    throw new ApiError("EXPO_PUBLIC_API_BASE_URL não configurada.");
+  }
+
+  const pesoKg = parsePesoKg(form.pesoKg);
+  const totalBlocos = Math.ceil(video.sizeBytes / TAMANHO_BLOCO_BYTES);
+
+  console.log(
+    `[uploadCaptureEmBlocos] iniciando envio em blocos: captureId=${captureId} tamanho=${video.sizeBytes} bytes totalBlocos=${totalBlocos}`
+  );
+
+  for (let reinicio = 0; ; reinicio++) {
+    try {
+      return await tentarUmaSessaoDeBlocos({
+        captureId,
+        video,
+        form,
+        pesoKg,
+        totalBlocos,
+        onProgress,
+        onProcessingStart,
+      });
+    } catch (erro) {
+      if (ehSessaoPerdida(erro) && reinicio < MAX_REINICIOS_SESSAO_PERDIDA) {
+        console.log(
+          `[uploadCaptureEmBlocos] captureId=${captureId}: sessão de envio foi perdida no meio do caminho (provável reinício do backend) — chamando /init de novo e reenviando os blocos, sem expor erro pra pessoa.`
+        );
+        continue;
+      }
+      throw erro;
+    }
+  }
 }
