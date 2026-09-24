@@ -1,9 +1,9 @@
 """
 Testa o reenvio de frames "cocho incompleto" ao dataset do Modelo 1
 (`reconhecimento-de-cocho`) — ver `CaptureService._enviar_frame_incompleto_modelo1`
-e `Settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1`/`ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA`
+e `Settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1`/`ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS`
 em `config.py`. Usa um `FakeRoboflowClient` (sem rede) e `MockTroughValidator`
-sempre reprovando, pra isolar só a lógica de gating/teto/fallback de chave e
+sempre reprovando, pra isolar só a lógica de gating/fração/fallback de chave e
 o isolamento de falha, sem depender do modelo real de detecção.
 """
 
@@ -126,18 +126,18 @@ async def test_frame_incompleto_nao_sobe_ao_modelo1_quando_flag_desligada(
     assert fake_client.upload_to_project_calls == []
 
 
-async def test_frame_incompleto_sobe_ao_modelo1_respeitando_teto(
+async def test_frame_incompleto_sobe_ao_modelo1_respeitando_fracao_configurada(
     settings, tmp_path, patched_pipeline
 ):
     settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1 = True
     settings.ROBOFLOW_TROUGH_UPLOAD_PROJECT = "reconhecimento-de-cocho"
     settings.ROBOFLOW_TROUGH_API_KEY = "chave-workspace-modelo1"
-    settings.ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA = 2
+    settings.ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS = 0.5
     fake_client = FakeRoboflowClient()
     service = _service(settings, tmp_path, fake_client)
 
     resposta = await service.process_capture(
-        capture_id="cap-teto",
+        capture_id="cap-fracao",
         video_bytes=b"fake-mp4-bytes",
         mime_type="video/mp4",
         original_filename="video.mp4",
@@ -145,8 +145,18 @@ async def test_frame_incompleto_sobe_ao_modelo1_respeitando_teto(
     )
 
     assert resposta.total_rejeitados_cocho_incompleto == TOTAL_FRAMES_FAKE
-    # Teto respeitado: só 2 dos 6 frames incompletos foram enviados ao Modelo 1.
-    assert len(fake_client.upload_to_project_calls) == 2
+    # Metade dos 6 frames incompletos foi enviada ao Modelo 1 — pelo
+    # acumulador (ver `CaptureService.process_capture`), não os 3 primeiros:
+    # o 2º, 4º e 6º frame incompleto (índices 1, 3, 5, base 0), distribuídos
+    # ao longo do vídeo em vez de concentrados no início.
+    assert len(fake_client.upload_to_project_calls) == 3
+    # `video_id` no nome do arquivo é um UUID gerado por captura (não
+    # previsível aqui) — o que importa validar é o ÍNDICE do frame no final
+    # do nome, que confirma quais frames incompletos foram escolhidos.
+    sufixos_enviados = [
+        chamada["filename"].rsplit("_", 2)[-2] for chamada in fake_client.upload_to_project_calls
+    ]
+    assert sufixos_enviados == ["001", "003", "005"]
     for chamada in fake_client.upload_to_project_calls:
         assert chamada["project"] == "reconhecimento-de-cocho"
         assert chamada["api_key"] == "chave-workspace-modelo1"
@@ -160,7 +170,10 @@ async def test_frame_incompleto_usa_fallback_de_chave_quando_trough_key_vazia(
     settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1 = True
     settings.ROBOFLOW_TROUGH_UPLOAD_PROJECT = "reconhecimento-de-cocho"
     settings.ROBOFLOW_TROUGH_API_KEY = ""  # sem chave dedicada -> cai pra ROBOFLOW_API_KEY
-    settings.ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA = 1
+    # Fração 1.0 (manda todos) só pra deixar a contagem óbvia aqui — o que
+    # este teste verifica é o fallback de chave, não a fração em si (já
+    # coberta em `test_frame_incompleto_sobe_ao_modelo1_respeitando_fracao_configurada`).
+    settings.ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS = 1.0
     fake_client = FakeRoboflowClient()
     service = _service(settings, tmp_path, fake_client)
 
@@ -172,7 +185,7 @@ async def test_frame_incompleto_usa_fallback_de_chave_quando_trough_key_vazia(
         form=_form(),
     )
 
-    assert len(fake_client.upload_to_project_calls) == 1
+    assert len(fake_client.upload_to_project_calls) == TOTAL_FRAMES_FAKE
     assert fake_client.upload_to_project_calls[0]["api_key"] == settings.ROBOFLOW_API_KEY
 
 
@@ -200,7 +213,6 @@ async def test_falha_no_envio_ao_modelo1_nao_derruba_a_captura(
     settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1 = True
     settings.ROBOFLOW_TROUGH_UPLOAD_PROJECT = "reconhecimento-de-cocho"
     settings.ROBOFLOW_TROUGH_API_KEY = "chave-workspace-modelo1"
-    settings.ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA = 3
     fake_client = FakeRoboflowClient(falha_modelo1=True)
     service = _service(settings, tmp_path, fake_client)
 

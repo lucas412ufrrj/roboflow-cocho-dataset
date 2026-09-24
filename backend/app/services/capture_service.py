@@ -330,12 +330,15 @@ class CaptureService:
             frame_results: list[FrameResult] = []
             aprovados = desfocados = cocho_incompleto = falhas_upload = 0
             total_candidatos = 0
-            # Conta só os frames de "cocho incompleto" já enviados ao Modelo
-            # 1 nesta captura, pra respeitar o teto configurado (ver
-            # `_enviar_frame_incompleto_modelo1`) — vídeos com desenquadre
-            # prolongado geram vários frames incompletos quase idênticos, e
-            # não queremos inundar o dataset do Modelo 1 com duplicata.
-            frames_incompletos_enviados_modelo1 = 0
+            # Acumulador que decide, frame incompleto a frame incompleto, se
+            # ESTE vai pro Modelo 1 — ver
+            # `Settings.ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS`. Soma a
+            # fração configurada a cada frame incompleto e dispara o envio
+            # sempre que passa de 1.0 (subtraindo 1.0 na hora), o que
+            # distribui a fração escolhida de forma uniforme ao longo do
+            # vídeo em vez de só pegar os primeiros N — com 0.5 (padrão),
+            # isso manda o 2º, 4º, 6º... frame incompleto.
+            frames_incompletos_acumulador = 0.0
 
             async for frame in iter_frames(processing_path, self.settings.FRAMES_PER_SECOND):
                 total_candidatos += 1
@@ -383,12 +386,12 @@ class CaptureService:
                             motivo_rejeicao=motivo,
                         )
                     )
-                    if (
-                        self.settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1
-                        and frames_incompletos_enviados_modelo1
-                        < self.settings.ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA
-                    ):
-                        frames_incompletos_enviados_modelo1 += 1
+                    if self.settings.ENVIAR_COCHO_INCOMPLETO_MODELO_1:
+                        frames_incompletos_acumulador += (
+                            self.settings.ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS
+                        )
+                    if frames_incompletos_acumulador >= 1.0:
+                        frames_incompletos_acumulador -= 1.0
                         await self._enviar_frame_incompleto_modelo1(
                             frame_bgr=frame.frame_bgr,
                             video_id=video_id,

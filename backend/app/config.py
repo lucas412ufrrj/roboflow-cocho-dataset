@@ -239,9 +239,8 @@ class Settings(BaseSettings):
 
     # --- Modelo 1: reenvio de frames "cocho incompleto" como dado bruto ---
     # Frames reprovados por TroughValidator (acima) hoje eram só descartados.
-    # Com isso ligado, cada captura manda até
-    # ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA desses frames — SEM anotação —
-    # pro dataset do próprio Modelo 1 (ROBOFLOW_TROUGH_UPLOAD_PROJECT),
+    # Com isso ligado, cada captura manda uma FRAÇÃO desses frames — SEM
+    # anotação — pro dataset do próprio Modelo 1 (ROBOFLOW_TROUGH_UPLOAD_PROJECT),
     # fechando o ciclo entre captura real de campo e os lotes de reanotação
     # manual que o Lucas já faz a cada cocho novo (ver decisão registrada no
     # projeto Claude em 19/09/2026). Usa a mesma chave de
@@ -252,7 +251,19 @@ class Settings(BaseSettings):
     # configurada tem essa permissão em `reconhecimento-de-cocho`.
     ENVIAR_COCHO_INCOMPLETO_MODELO_1: bool = False
     ROBOFLOW_TROUGH_UPLOAD_PROJECT: str = "reconhecimento-de-cocho"
-    ROBOFLOW_TROUGH_MAX_FRAMES_POR_CAPTURA: int = 3
+    # Fração dos frames "cocho incompleto" de cada captura enviada ao Modelo
+    # 1 (0.0 a 1.0). Antes disso era um teto fixo de frames por captura, que
+    # limitava a poucos exemplos mesmo em vídeos longos — mas o modelo de
+    # detecção vem tendo dificuldade justamente com vídeos gravados por
+    # câmeras diferentes da do app, e o objetivo agora é dar mais volume de
+    # dado pra ele aprender com essas condições, mesmo que as imagens saiam
+    # parecidas entre si (ver decisão registrada no projeto Claude em
+    # 24/09/2026). Selecionado por um acumulador (ver
+    # `CaptureService.process_capture`), não por sorteio: com 0.5 (padrão),
+    # manda o 2º, 4º, 6º... frame incompleto, distribuindo a metade
+    # escolhida de forma uniforme ao longo do vídeo em vez de só os
+    # primeiros ou só os últimos.
+    ROBOFLOW_TROUGH_FRACAO_FRAMES_INCOMPLETOS: float = 0.5
 
     @field_validator("ROBOFLOW_API_KEY")
     @classmethod
