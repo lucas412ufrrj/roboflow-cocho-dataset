@@ -300,7 +300,7 @@ export function CochosScreen({ navigation }: Props) {
         </Pressable>
       )}
 
-      {/* Sincronização manual — mesma estética discreta do link "Versão" da
+      {/* Sincronização manual — mesma estética discreta do link "Sobre" da
           Lobby (ver `LobbyScreen.linkSobre`). Aparece pra todo mundo, não só
           pra quem tem chave de admin: quem mais precisa disso é justamente
           quem só recebe a lista cadastrada por outra pessoa. */}
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-  // Mesma estética do link "Versão" na Lobby (ver `LobbyScreen.linkSobre`),
+  // Mesma estética do link "Sobre" na Lobby (ver `LobbyScreen.linkSobre`),
   // com espaço pra rodinha de carregamento ao lado do texto.
   linkSincronizar: {
     flexDirection: "row",

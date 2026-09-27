@@ -135,7 +135,7 @@ export function LobbyScreen({ navigation }: Props) {
 
       <View style={styles.linksRodape}>
         <Pressable style={styles.linkSobre} onPress={() => navigation.navigate("Sobre")} hitSlop={8}>
-          <Text style={styles.linkSobreTexto}>Versão</Text>
+          <Text style={styles.linkSobreTexto}>Sobre</Text>
         </Pressable>
         <Text style={styles.linksRodapeSeparador}>·</Text>
         <Pressable style={styles.linkSobre} onPress={abrirChangelog} hitSlop={8}>

@@ -19,10 +19,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     versao: "2026-09-27",
     data: "27/09/2026",
     itens: [
+      "IMPORTANTE: por limitações do desenvolvedor :( o aplicativo não consegue fazer o upload se estiver completamente fechado. Isso é do próprio sistema, e alterar isso agora demandaria uma logística inviável. Com um envio pendente, opte por manter o app na lista de apps recentes (histórico) ou abra o aplicativo quando estiver conectado ao wifi, e ele fará o upload automaticamente. Na aba Sobre você pode ter acesso a algumas instruções para garantir o funcionamento em segundo plano.",
       "Agora dá pra editar o peso e as observações de um vídeo que ainda não foi enviado, pelo menu (⋮) no Histórico.",
-      "Peso acima de 2000kg (ou zerado/inválido) agora avisa na hora, não só quando o envio falha.",
       "Um vídeo que falha 5 vezes seguidas para de tentar sozinho (fica marcado \"só manual\" no Histórico) — edite o dado errado ou toque em \"Sincronizar agora\" pra tentar de novo.",
-      "IMPORTANTE sobre envio com o app fechado: removê-lo da lista de apps recentes (deslizar pra fora) interrompe a sincronização automática até você reabrir o app — isso é do próprio sistema do celular, não tem como o app evitar sozinho. Com um envio pendente, prefira só ir pra tela inicial em vez de remover dos recentes. A tela \"Sobre\" agora mostra se o sistema está bloqueando a sincronização em segundo plano neste aparelho.",
     ],
   },
   {

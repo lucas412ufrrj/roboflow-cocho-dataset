@@ -138,7 +138,8 @@ export function SobreScreen() {
           é assim pra qualquer app, não só este; não tem como contornar sozinho no código. Com um vídeo
           pendente, prefira só ir pra tela inicial em vez de remover dos recentes. Em alguns celulares,
           desativar a "otimização de bateria" pra este app (nas configurações do aparelho) também ajuda a
-          sincronização rodar no tempo esperado.
+          sincronização rodar no tempo esperado. A correção definitiva pra isso (upload em segundo plano de
+          verdade, que sobrevive mesmo removendo o app dos recentes) está planejada pro fim do experimento.
         </Text>
       </View>
 

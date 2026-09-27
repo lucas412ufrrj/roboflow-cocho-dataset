@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-  // Ver `CochosScreen.tsx` — mesma estética do link "Versão" da Lobby.
+  // Ver `CochosScreen.tsx` — mesma estética do link "Sobre" da Lobby.
   linkSincronizar: {
     flexDirection: "row",
     alignSelf: "center",
