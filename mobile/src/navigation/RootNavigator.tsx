@@ -12,6 +12,7 @@ import { RecordVideoScreen } from "@/screens/RecordVideoScreen";
 import { PreviewScreen } from "@/screens/PreviewScreen";
 import { UploadStatusScreen } from "@/screens/UploadStatusScreen";
 import { HistoricoScreen } from "@/screens/HistoricoScreen";
+import { EditCaptureScreen } from "@/screens/EditCaptureScreen";
 import { SobreScreen } from "@/screens/SobreScreen";
 import { HistoricoHeaderLink } from "@/components/HistoricoHeaderLink";
 
@@ -30,6 +31,9 @@ export type RootStackParamList = {
   // local (offlineQueue) a partir do momento em que a Prévia é confirmada.
   UploadStatus: { captureId: string };
   Historico: undefined;
+  // Só o captureId, mesma lógica de `UploadStatus` acima — a tela lê o item
+  // atual direto da fila local (ver `EditCaptureScreen.tsx`).
+  EditCapture: { captureId: string };
   Sobre: undefined;
 };
 
@@ -85,6 +89,11 @@ export function RootNavigator() {
           name="Historico"
           component={HistoricoScreen}
           options={{ title: "Histórico de envios" }}
+        />
+        <Stack.Screen
+          name="EditCapture"
+          component={EditCaptureScreen}
+          options={{ title: "Editar captura" }}
         />
         <Stack.Screen
           name="Sobre"

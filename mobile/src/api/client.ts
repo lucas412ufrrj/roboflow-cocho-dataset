@@ -16,11 +16,27 @@ const BACKEND_API_KEY = process.env.EXPO_PUBLIC_BACKEND_API_KEY ?? "";
 
 // Acima deste tamanho, o envio usa o caminho em blocos retomável (ver
 // `uploadCaptureEmBlocos` mais abaixo) em vez do envio único de sempre —
-// captura no campo costuma ter conexão de dados ruim/instável, e um vídeo
-// grande que cai no meio do envio único tinha que recomeçar do zero.
-// Vídeos pequenos continuam pelo caminho antigo, mais simples e com menos
-// requisições.
-const LIMIAR_ENVIO_EM_BLOCOS_BYTES = 8 * 1024 * 1024; // 8 MB
+// captura no campo costuma ter conexão de dados ruim/instável (ou a pessoa
+// fecha o app achando que já deu tempo), e um vídeo grande que cai no meio
+// do envio único tinha que recomeçar do zero.
+//
+// Antes este limiar era 8 MB (só vídeo "grande" ia pelo caminho retomável).
+// Baixado pra IGUAL a `TAMANHO_BLOCO_BYTES` depois de um relato de vídeo
+// perdido/reiniciado do zero ao fechar o app no meio do envio: com
+// `videoQuality="720p"` (ver `RecordVideoScreen.tsx`), um vídeo gravado pela
+// câmera do próprio app já fica tipicamente NA FAIXA que antes ia pelo envio
+// único (a variação de bitrate entre aparelhos Android é grande demais pra
+// confiar numa estimativa de tamanho) — ou seja, a maioria das capturas
+// reais nunca se beneficiava da retomada. Com o limiar igual ao tamanho de
+// um bloco só, qualquer vídeo que precise de mais de UM bloco (praticamente
+// todos, na prática) já entra no caminho retomável: uma queda de conexão ou
+// o app sendo fechado no meio do envio perde no máximo o bloco em trânsito
+// (até 512KB), não o vídeo inteiro. O único custo é o de sempre do caminho
+// em blocos — ~33% mais bytes por causa do base64 (ver `enviarBloco` mais
+// abaixo) — pago só sobre o próprio vídeo, e sempre em wifi (nunca dados
+// móveis, ver `temWifiConectado` em `syncEngine.ts`), então o custo real é
+// tempo de transferência, não dado do plano de ninguém.
+const LIMIAR_ENVIO_EM_BLOCOS_BYTES = 512 * 1024; // = TAMANHO_BLOCO_BYTES, ver comentário acima
 const TAMANHO_BLOCO_BYTES = 512 * 1024; // 512 KB por bloco
 
 const TIMEOUT_INIT_MS = 30 * 1000;

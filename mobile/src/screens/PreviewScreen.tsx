@@ -28,7 +28,7 @@ import {
   RECORDING_DURATION_S,
 } from "@/utils/video";
 import { generateCaptureId } from "@/utils/uuid";
-import { parsePesoInput } from "@/utils/peso";
+import { erroDoPeso, parsePesoInput } from "@/utils/peso";
 import { enqueueCapture } from "@/services/offlineQueue";
 import { registrarNoHistorico } from "@/services/historicoEnvios";
 import { gerarMiniatura } from "@/services/thumbnails";
@@ -94,6 +94,10 @@ export function PreviewScreen({ navigation, route }: Props) {
   const [pesoKg, setPesoKg] = useState(form.pesoKg);
   const [observacoes, setObservacoes] = useState(form.observacoes ?? "");
   const [erroPeso, setErroPeso] = useState<string | null>(null);
+  // Validação em tempo real enquanto o campo está aberto pra edição — sem
+  // isso, um peso fora da faixa aceita pelo backend (ver `utils/peso.ts`) só
+  // dava erro no envio, bem depois de a pessoa já ter seguido em frente.
+  const erroPesoAoVivo = erroDoPeso(pesoKg);
 
   // Só um campo por vez fica em modo de edição, pra manter a tela compacta.
   const [campoEditando, setCampoEditando] = useState<CampoRevisao | null>(null);
@@ -120,8 +124,9 @@ export function PreviewScreen({ navigation, route }: Props) {
 
   function salvarCampo(campo: CampoRevisao) {
     if (campo === "peso") {
-      if (parsePesoInput(pesoKg) === null) {
-        setErroPeso("Informe o peso real em kg (ex.: 12.5).");
+      const mensagem = erroDoPeso(pesoKg);
+      if (mensagem) {
+        setErroPeso(mensagem);
         return; // mantém o campo aberto pra pessoa corrigir
       }
       setErroPeso(null);
@@ -133,7 +138,7 @@ export function PreviewScreen({ navigation, route }: Props) {
   async function confirmarEEnviar() {
     if (parsePesoInput(pesoKg) === null) {
       setCampoEditando("peso");
-      setErroPeso("Informe o peso real em kg (ex.: 12.5).");
+      setErroPeso(erroDoPeso(pesoKg) ?? "Informe o peso real em kg (ex.: 12.5).");
       return;
     }
     setErroPeso(null);
@@ -264,7 +269,7 @@ export function PreviewScreen({ navigation, route }: Props) {
               onSalvar={() => salvarCampo("peso")}
             >
               <TextInput
-                style={styles.input}
+                style={[styles.input, erroPesoAoVivo && styles.inputComErro]}
                 value={pesoKg}
                 onChangeText={setPesoKg}
                 placeholder="Ex.: 12.5"
@@ -273,7 +278,8 @@ export function PreviewScreen({ navigation, route }: Props) {
                 autoFocus
               />
             </LinhaRevisao>
-            {erroPeso && <Text style={styles.erro}>{erroPeso}</Text>}
+            {campoEditando === "peso" && erroPesoAoVivo && <Text style={styles.erro}>{erroPesoAoVivo}</Text>}
+            {campoEditando !== "peso" && erroPeso && <Text style={styles.erro}>{erroPeso}</Text>}
 
             <View style={styles.infoLinha}>
               <Text style={styles.infoLabel}>Tipo de alimento</Text>
@@ -378,6 +384,7 @@ const styles = StyleSheet.create({
     borderColor: "#2A3542",
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
+  inputComErro: { borderColor: "#FF6B6B" },
   erro: { color: "#FF6B6B", marginTop: -4, fontSize: 13 },
   botoesLinha: { flexDirection: "row", gap: 12, paddingTop: 4 },
   botao: {

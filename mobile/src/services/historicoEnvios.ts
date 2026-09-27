@@ -163,6 +163,27 @@ export async function marcarComoEnviadoNoHistorico(
 }
 
 /**
+ * Atualiza os campos exibidos de uma captura ainda pendente depois de
+ * editada em `EditCaptureScreen.tsx` — só o que o Histórico mostra na lista
+ * (peso, e tipo de alimento/cocho se algum dia virarem editáveis também).
+ * `cocho`/`tipoAlimento` não são editáveis hoje (ver `types/capture.ts`),
+ * então só `pesoKg` é passado na prática, mas a assinatura já cobre os
+ * outros dois pra não precisar mudar de novo se isso mudar.
+ */
+export async function atualizarNoHistorico(
+  captureId: string,
+  dados: { pesoKg?: string; tipoAlimentoNome?: string; cochoNome?: string }
+): Promise<void> {
+  return withLock(async () => {
+    const items = await readRaw();
+    const index = items.findIndex((item) => item.captureId === captureId);
+    if (index === -1) return;
+    items[index] = { ...items[index], ...dados };
+    await writeRaw(items);
+  });
+}
+
+/**
  * Marca uma captura como cancelada pela própria pessoa (ex.: vídeo
  * corrompido) — usado junto com `removeFromQueue` em
  * `syncEngine.cancelarCaptura`, nunca sozinha.

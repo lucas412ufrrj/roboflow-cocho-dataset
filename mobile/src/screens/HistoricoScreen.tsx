@@ -2,7 +2,9 @@ import { useCallback, useState } from "react";
 import { Alert, FlatList, Image, Modal, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
+import type { RootStackParamList } from "@/navigation/RootNavigator";
 import { listarHistorico, reconciliarComFila, type HistoricoEntry } from "@/services/historicoEnvios";
 import { listQueue, type QueueItem } from "@/services/offlineQueue";
 import {
@@ -187,7 +189,9 @@ function Linha({
   );
 }
 
-export function HistoricoScreen() {
+type Props = NativeStackScreenProps<RootStackParamList, "Historico">;
+
+export function HistoricoScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [historico, setHistorico] = useState<HistoricoEntry[]>([]);
   // Espelha a fila local (offlineQueue) por captureId — é o que permite
@@ -308,6 +312,13 @@ export function HistoricoScreen() {
     }
   }
 
+  function abrirEdicao() {
+    const item = itemDoMenu;
+    if (!item) return;
+    setItemDoMenu(null);
+    navigation.navigate("EditCapture", { captureId: item.captureId });
+  }
+
   function confirmarCancelamento() {
     const item = itemDoMenu;
     if (!item) return;
@@ -401,6 +412,10 @@ export function HistoricoScreen() {
         <Pressable style={styles.overlay} onPress={() => setItemDoMenu(null)}>
           <View style={[styles.folhaMenu, { paddingBottom: 32 + insets.bottom }]}>
             {itemDoMenu && <Text style={styles.folhaMenuTitulo}>{formatarDataHora(itemDoMenu.createdAt)}</Text>}
+
+            <Pressable style={styles.opcaoMenu} onPress={abrirEdicao}>
+              <Text style={styles.opcaoMenuTexto}>Editar peso/observações</Text>
+            </Pressable>
 
             <Pressable
               style={styles.opcaoMenu}

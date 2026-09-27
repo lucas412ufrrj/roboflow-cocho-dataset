@@ -136,9 +136,15 @@ export async function enqueueCapture(params: {
   });
 }
 
+/**
+ * `form` no patch é usado por `EditCaptureScreen.tsx` pra corrigir peso ou
+ * observações de uma captura que ainda não foi enviada — sempre o objeto
+ * `form` INTEIRO (substituindo, não mesclando campo a campo), já que
+ * `cocho`/`tipoAlimento` continuam obrigatórios e não fazem sentido parciais.
+ */
 export async function updateQueueItem(
   captureId: string,
-  patch: Partial<Pick<QueueItem, "status" | "attempts" | "lastError" | "lastAttemptAt" | "notificouFalha">>
+  patch: Partial<Pick<QueueItem, "status" | "attempts" | "lastError" | "lastAttemptAt" | "notificouFalha" | "form">>
 ): Promise<void> {
   return withLock(async () => {
     const items = await readIndexRaw();

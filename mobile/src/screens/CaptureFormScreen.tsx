@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { RootStackParamList } from "@/navigation/RootNavigator";
-import { parsePesoInput } from "@/utils/peso";
+import { erroDoPeso, parsePesoInput } from "@/utils/peso";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CaptureForm">;
 
@@ -23,11 +23,15 @@ export function CaptureFormScreen({ navigation, route }: Props) {
   const [pesoKg, setPesoKg] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  // Validação em tempo real (não só ao apertar "Continuar"): sem isso, um
+  // peso fora da faixa aceita pelo backend (ver `utils/peso.ts`) só dava
+  // erro depois do vídeo já gravado — tarde demais pra corrigir na hora.
+  const erroAoVivo = pesoKg.length > 0 ? erroDoPeso(pesoKg) : null;
 
   function continuar() {
     const numero = parsePesoInput(pesoKg);
     if (numero === null) {
-      setErro("Informe o peso real em kg (ex.: 12.5).");
+      setErro(erroDoPeso(pesoKg) ?? "Informe o peso real em kg (ex.: 12.5).");
       return;
     }
     setErro(null);
@@ -58,13 +62,14 @@ export function CaptureFormScreen({ navigation, route }: Props) {
 
         <Text style={styles.label}>Peso real (kg) *</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, erroAoVivo && styles.inputComErro]}
           value={pesoKg}
           onChangeText={setPesoKg}
           placeholder="Ex.: 12.5"
           placeholderTextColor="#8A8F98"
           keyboardType="decimal-pad"
         />
+        {erroAoVivo && <Text style={styles.erro}>{erroAoVivo}</Text>}
 
         <Text style={styles.label}>Observações (opcional)</Text>
         <TextInput
@@ -79,7 +84,11 @@ export function CaptureFormScreen({ navigation, route }: Props) {
 
         {erro && <Text style={styles.erro}>{erro}</Text>}
 
-        <Pressable style={styles.botao} onPress={continuar}>
+        <Pressable
+          style={[styles.botao, !!erroAoVivo && styles.botaoDesabilitado]}
+          onPress={continuar}
+          disabled={!!erroAoVivo}
+        >
           <Text style={styles.botaoTexto}>Continuar para gravação</Text>
         </Pressable>
       </ScrollView>
@@ -104,6 +113,7 @@ const styles = StyleSheet.create({
     borderColor: "#2A3542",
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
+  inputComErro: { borderColor: "#FF6B6B" },
   erro: { color: "#FF6B6B", marginTop: 14 },
   botao: {
     marginTop: 28,
@@ -112,5 +122,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: "center",
   },
+  botaoDesabilitado: { backgroundColor: "#354456" },
   botaoTexto: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
 });
