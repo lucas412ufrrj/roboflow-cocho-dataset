@@ -44,6 +44,16 @@ export interface QueueItem {
   /** Já disparou a notificação de "falha persistente" pra esta captura —
    * evita avisar de novo a cada retry automático depois do primeiro aviso. */
   notificouFalha?: boolean;
+  /**
+   * `true` depois que `attempts` atinge `LIMITE_TENTATIVAS_AUTOMATICAS`
+   * (ver `notifications.ts`/`syncEngine.ts`): a partir daí, `sincronizarFila`
+   * chamada pelos gatilhos automáticos (abrir o app, wifi conectar,
+   * verificação periódica em segundo plano) pula este item — só volta a
+   * tentar por um toque manual ("Sincronizar agora" no Histórico) ou depois
+   * de editado (`EditCaptureScreen.tsx` reseta esta flag junto com
+   * `attempts`, já que corrigir o dado é a própria tentativa de conserto).
+   */
+  somenteManual?: boolean;
 }
 
 const QUEUE_DIR = `${FileSystem.documentDirectory}capturas-pendentes/`;
@@ -144,7 +154,12 @@ export async function enqueueCapture(params: {
  */
 export async function updateQueueItem(
   captureId: string,
-  patch: Partial<Pick<QueueItem, "status" | "attempts" | "lastError" | "lastAttemptAt" | "notificouFalha" | "form">>
+  patch: Partial<
+    Pick<
+      QueueItem,
+      "status" | "attempts" | "lastError" | "lastAttemptAt" | "notificouFalha" | "form" | "somenteManual"
+    >
+  >
 ): Promise<void> {
   return withLock(async () => {
     const items = await readIndexRaw();

@@ -13,10 +13,18 @@ import { AppState } from "react-native";
 
 const CANAL_SINCRONIZACAO = "sincronizacao";
 
-// Falhar uma ou duas vezes é normal (sem wifi, backend reiniciando etc.) — só
-// avisa quando o número de tentativas malsucedidas passa desse limite, pra
-// não notificar a cada retry automático em segundo plano.
-export const LIMITE_TENTATIVAS_PARA_AVISAR = 5;
+// Falhar uma ou duas vezes é normal (sem wifi, backend reiniciando etc.). A
+// partir desse número de tentativas AUTOMÁTICAS malsucedidas seguidas, duas
+// coisas acontecem (ver `syncEngine.ts`): (1) avisa a pessoa por notificação,
+// uma única vez, em vez de notificar a cada retry; e (2) o vídeo para de ser
+// tentado sozinho — fica parado em "erro" até um toque manual ("Sincronizar
+// agora" no Histórico) ou até a captura ser editada (o que já reseta a
+// contagem, ver `EditCaptureScreen.tsx`). Sem esse segundo limite, um vídeo
+// com um problema permanente (ex.: peso inválido rejeitado pelo backend)
+// ficava sendo retentado pra sempre a cada abertura do app/reconexão de
+// wifi/verificação periódica, sem nunca desistir — ver decisão registrada no
+// projeto Claude em 2026-09-27.
+export const LIMITE_TENTATIVAS_AUTOMATICAS = 5;
 
 let handlerConfigurado = false;
 

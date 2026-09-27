@@ -99,10 +99,18 @@ export function EditCaptureScreen({ navigation, route }: Props) {
         navigation.goBack();
         return;
       }
-      if (atual.status !== "pendente") {
+      // Só bloqueia quando o vídeo está SENDO enviado neste exato instante —
+      // um item em "erro" está parado, esperando a próxima tentativa
+      // (automática ou manual), e é exatamente esse o caso mais comum de
+      // querer editar (ex.: peso digitado errado fazendo o backend rejeitar
+      // sempre). Bloquear também "erro" aqui, como antes, deixava um vídeo
+      // que já esgotou as tentativas automáticas (`somenteManual`, ver
+      // `syncEngine.ts`) permanentemente impossível de editar — ver decisão
+      // registrada no projeto Claude em 2026-09-27.
+      if (atual.status === "enviando") {
         Alert.alert(
-          "Não deu pra salvar agora",
-          "O envio desse vídeo já começou. Espere terminar (ou falhar) e edite de novo antes da próxima tentativa."
+          "Não foi possível salvar as alterações",
+          "Somente vídeos que ainda não entraram em processo de upload podem ser editados."
         );
         navigation.goBack();
         return;
@@ -113,7 +121,19 @@ export function EditCaptureScreen({ navigation, route }: Props) {
         pesoKg: pesoKg.trim(),
         observacoes: observacoes.trim() || undefined,
       };
-      await updateQueueItem(captureId, { form: formAtualizado });
+      await updateQueueItem(captureId, {
+        form: formAtualizado,
+        // Editar os dados É o conserto de um vídeo que vinha falhando (peso
+        // inválido, por exemplo) — reseta o histórico de falha pra dar uma
+        // chance nova e completa de tentativas automáticas, em vez de deixar
+        // travado em "somenteManual" por causa de um erro que já foi
+        // corrigido.
+        status: "pendente",
+        attempts: 0,
+        lastError: undefined,
+        notificouFalha: false,
+        somenteManual: false,
+      });
       // Histórico é só exibição — atraso ou falha aqui não desfaz a edição
       // de verdade, que já está salva na fila.
       await atualizarNoHistorico(captureId, { pesoKg: formAtualizado.pesoKg }).catch(() => undefined);

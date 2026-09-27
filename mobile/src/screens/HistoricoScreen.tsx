@@ -48,7 +48,11 @@ function badgeDaLinha(
     }
     if (itemNaFila?.status === "erro") {
       const vezes = itemNaFila.attempts ? ` (${itemNaFila.attempts}x)` : "";
-      return { texto: `Falha no envio${vezes}`, cor: "#FF6B6B", fundo: "#FF6B6B22" };
+      // Depois de esgotar as tentativas automáticas (`somenteManual`), o
+      // vídeo para de ser tentado sozinho — o texto avisa disso, senão a
+      // pessoa não tem como saber que precisa tocar em "Sincronizar agora".
+      const texto = itemNaFila.somenteManual ? `Falha no envio${vezes} — só manual` : `Falha no envio${vezes}`;
+      return { texto, cor: "#FF6B6B", fundo: "#FF6B6B22" };
     }
   }
   return STATUS_INFO[item.status];
@@ -252,7 +256,10 @@ export function HistoricoScreen({ navigation }: Props) {
   async function sincronizarAgora() {
     setSincronizando(true);
     try {
-      const resultado = await sincronizarFila();
+      // `manual: true` é o que deixa esse toque tentar de novo uma captura já
+      // travada em "somenteManual" (5 tentativas automáticas esgotadas) — ver
+      // `syncEngine.sincronizarFila`.
+      const resultado = await sincronizarFila({ manual: true });
       if (resultado.jaEmAndamento) {
         Alert.alert(
           "Já está sincronizando",

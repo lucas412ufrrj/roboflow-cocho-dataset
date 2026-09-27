@@ -2,9 +2,36 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
+import * as BackgroundFetch from "expo-background-fetch";
+import * as TaskManager from "expo-task-manager";
 
 import { CHANGELOG } from "@/data/changelog";
 import { obterChaveAdmin, salvarChaveAdmin } from "@/services/adminKey";
+import { BACKGROUND_SYNC_TASK } from "@/tasks/backgroundSyncTask";
+
+/**
+ * Traduz o status que o PRÓPRIO SISTEMA (Android/iOS) reporta pra
+ * sincronização em segundo plano — não é algo que o app controla. Ver
+ * decisão registrada no projeto Claude em 2026-09-27: depois que um usuário
+ * removeu o app da lista de apps recentes (deslizou pra fora) com um vídeo
+ * pendente, o envio só recomeçou ao reabrir o app. Isso é documentadamente
+ * como Android/iOS tratam esse caso (o processo é encerrado de verdade, não
+ * só "pausado") — nenhum app comum, nem os grandes, escapa disso sozinho.
+ * Este bloco existe pra pelo menos deixar claro, no próprio aparelho, se é o
+ * sistema que está limitando (bateria/config) ou não.
+ */
+function textoPermissaoSegundoPlano(status: BackgroundFetch.BackgroundFetchStatus | null): string {
+  switch (status) {
+    case BackgroundFetch.BackgroundFetchStatus.Available:
+      return "Disponível";
+    case BackgroundFetch.BackgroundFetchStatus.Denied:
+      return "Negada pelo sistema (config. de bateria do celular)";
+    case BackgroundFetch.BackgroundFetchStatus.Restricted:
+      return "Restrita pelo sistema";
+    default:
+      return "Não foi possível checar";
+  }
+}
 
 function formatarDataHora(data: Date): string {
   const dois = (n: number) => String(n).padStart(2, "0");
@@ -56,6 +83,20 @@ export function SobreScreen() {
     obterChaveAdmin().then((chave) => setChaveAdmin(chave ?? ""));
   }, []);
 
+  // Diagnóstico de sincronização em segundo plano — ver `textoPermissaoSegundoPlano`
+  // acima pra contexto de por que isso é reportado pelo sistema, não pelo app.
+  const [segundoPlano, setSegundoPlano] = useState<{
+    registrada: boolean;
+    permissao: BackgroundFetch.BackgroundFetchStatus | null;
+  } | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK).catch(() => false),
+      BackgroundFetch.getStatusAsync().catch(() => null),
+    ]).then(([registrada, permissao]) => setSegundoPlano({ registrada, permissao }));
+  }, []);
+
   async function salvar() {
     await salvarChaveAdmin(chaveAdmin);
     setStatusChave(chaveAdmin.trim() ? "Salva neste aparelho." : "Removida deste aparelho.");
@@ -78,6 +119,27 @@ export function SobreScreen() {
         <Linha label="Canal" valor={Updates.channel ?? "—"} />
         <Linha label="Runtime version" valor={Updates.runtimeVersion ?? "—"} />
         {Updates.updateId && <Linha label="ID da atualização" valor={Updates.updateId.slice(0, 8)} />}
+      </View>
+
+      <View style={styles.bloco}>
+        <Text style={styles.blocoTitulo}>Sincronização em segundo plano</Text>
+        <Linha
+          label="Tarefa registrada"
+          valor={segundoPlano ? (segundoPlano.registrada ? "Sim" : "Não") : "Checando..."}
+        />
+        <Linha
+          label="Permissão do sistema"
+          valor={segundoPlano ? textoPermissaoSegundoPlano(segundoPlano.permissao) : "Checando..."}
+        />
+        <Text style={styles.subtitulo}>
+          Isso só ajuda com o app aberto ou em segundo plano vivo (você foi pra tela inicial ou trocou de
+          app). Se você REMOVER o app da lista de apps recentes (deslizar pra fora), o Android/iOS encerra o
+          processo de verdade — a sincronização automática só volta a rodar quando você reabrir o app. Isso
+          é assim pra qualquer app, não só este; não tem como contornar sozinho no código. Com um vídeo
+          pendente, prefira só ir pra tela inicial em vez de remover dos recentes. Em alguns celulares,
+          desativar a "otimização de bateria" pra este app (nas configurações do aparelho) também ajuda a
+          sincronização rodar no tempo esperado.
+        </Text>
       </View>
 
       <View style={styles.bloco}>

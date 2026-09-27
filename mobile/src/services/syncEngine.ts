@@ -30,12 +30,12 @@ import {
 } from "@/services/offlineQueue";
 import { marcarComoCanceladoNoHistorico, marcarComoEnviadoNoHistorico } from "@/services/historicoEnvios";
 import {
-  LIMITE_TENTATIVAS_PARA_AVISAR,
+  LIMITE_TENTATIVAS_AUTOMATICAS,
   notificarEnvioConcluido,
   notificarFalhaPersistente,
 } from "@/services/notifications";
 
-const MAX_TENTATIVAS_EXIBIDAS = 20; // só limita o contador mostrado na UI, nunca para de tentar
+const MAX_TENTATIVAS_EXIBIDAS = 20; // só limita o contador mostrado na UI depois de travar em "somenteManual"
 
 type Ouvinte = () => void;
 const ouvintes = new Set<Ouvinte>();
@@ -268,16 +268,23 @@ async function enviarItemReservado(
   } catch (error) {
     const mensagem = error instanceof ApiError ? error.message : "Falha inesperada ao enviar.";
     const tentativas = Math.min(item.attempts + 1, MAX_TENTATIVAS_EXIBIDAS);
+    // A partir do limite, a captura para de ser tentada sozinha (ver
+    // `sincronizarFila` e o comentário em `LIMITE_TENTATIVAS_AUTOMATICAS`) —
+    // sem isso, um problema permanente (peso inválido, vídeo corrompido)
+    // faria o app tentar de novo pra sempre, a cada abertura/wifi/verificação
+    // periódica, sem nunca desistir.
+    const somenteManual = tentativas >= LIMITE_TENTATIVAS_AUTOMATICAS;
     await updateQueueItem(item.captureId, {
       status: "erro",
       attempts: tentativas,
       lastError: mensagem,
       lastAttemptAt: Date.now(),
+      somenteManual,
     });
     // Só avisa uma vez por captura, depois de algumas tentativas seguidas —
     // uma falha isolada (sem wifi, backend reiniciando) é normal e não deve
     // gerar notificação a cada retry automático.
-    if (tentativas >= LIMITE_TENTATIVAS_PARA_AVISAR && !item.notificouFalha) {
+    if (somenteManual && !item.notificouFalha) {
       updateQueueItem(item.captureId, { notificouFalha: true }).catch(() => undefined);
       notificarFalhaPersistente({ pesoKg: item.form.pesoKg, cochoNome: item.form.cocho.nome, tentativas });
     }
@@ -319,8 +326,15 @@ export interface SincronizacaoResultado {
  * enquanto houver wifi. Usada pelos gatilhos automáticos (abrir o app,
  * wifi conectar, verificação periódica em segundo plano) e pelo botão
  * "Sincronizar agora" do Histórico.
+ *
+ * `manual` distingue os dois casos: só quando `true` (toque explícito da
+ * pessoa em "Sincronizar agora") uma captura já travada em `somenteManual`
+ * (ver `LIMITE_TENTATIVAS_AUTOMATICAS`) é tentada de novo. Os gatilhos
+ * automáticos chamam sem esse parâmetro (`false` por padrão) e pulam esses
+ * itens, exatamente pra parar de bater na mesma falha permanente sozinhos.
  */
-export async function sincronizarFila(): Promise<SincronizacaoResultado> {
+export async function sincronizarFila(opts: { manual?: boolean } = {}): Promise<SincronizacaoResultado> {
+  const manual = opts.manual ?? false;
   await limparEnviosZumbis();
   const totalPendentes = (await listQueue()).length;
 
@@ -342,6 +356,7 @@ export async function sincronizarFila(): Promise<SincronizacaoResultado> {
         itensJaEmEnvio += 1;
         continue;
       }
+      if (item.somenteManual && !manual) continue; // já esgotou as tentativas automáticas, espera toque manual
       if (!(await temWifiConectado())) break; // perdeu wifi no meio do caminho
 
       const resposta = await enviarItem(item);
