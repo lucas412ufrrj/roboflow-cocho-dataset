@@ -138,7 +138,9 @@ function Linha({
 
           <View style={styles.linhaTopoDireita}>
             <View style={[styles.badge, { backgroundColor: info.fundo, borderColor: info.cor }]}>
-              <Text style={[styles.badgeTexto, { color: info.cor }]}>{info.texto}</Text>
+              <Text style={[styles.badgeTexto, { color: info.cor }]} numberOfLines={1}>
+                {info.texto}
+              </Text>
             </View>
 
             {podeCancelar && (
@@ -499,13 +501,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  linhaTopoDireita: { flexDirection: "row", alignItems: "center", gap: 6 },
-  dataHora: { color: "#F5F5F5", fontSize: 14, fontWeight: "700" },
+  // `flexShrink: 1` aqui e no `badge` abaixo — e `flexShrink: 0` no
+  // `botaoMenu` — são o que garante que um texto de status comprido (ex.:
+  // "Falha no envio (20x) — só manual") encolhe e corta com reticências em
+  // vez de empurrar o botão de menu (⋮) pra fora da tela ou passar por cima
+  // dele. Por padrão, o React Native NÃO encolhe nenhum filho de uma linha
+  // (`flexShrink: 0`), diferente do CSS da web — sem essas duas linhas, um
+  // texto comprido simplesmente vaza da tela ao invés de quebrar ou cortar.
+  linhaTopoDireita: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
+  dataHora: { color: "#F5F5F5", fontSize: 14, fontWeight: "700", flexShrink: 0 },
   badge: {
     borderRadius: 20,
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderWidth: 1,
+    flexShrink: 1,
   },
   badgeTexto: { fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },
   botaoMenu: {
@@ -513,6 +523,7 @@ const styles = StyleSheet.create({
     height: 26,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   botaoMenuTexto: { color: "#8A8F98", fontSize: 18, fontWeight: "800", lineHeight: 18 },
   detalhes: { flexDirection: "row", gap: 14 },
